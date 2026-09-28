@@ -21,14 +21,14 @@ Alongside the songbook, each build writes an [RO-Crate](https://www.researchobje
 crate is where the songbook's data comes from, and where your choices (title, file name, setlist
 matches, confirmed keys) are kept between visits.
 
-See [`src/chordpro-input/SPEC.md`](src/chordpro-input/SPEC.md) for the full design and
+See [`SPEC.md`](SPEC.md) for the full design and
 [`docs/chordpro-format.md`](docs/chordpro-format.md) for the ChordPro dialect it reads.
 
 ## Layout
 
 ```
 app/                    the web app: index.html, main.js, app.css, modal.js, folder_store.js
-src/chordpro-input/     everything that builds or patches a songbook (no DOM outside the *_action.js modals)
+src/songbook/           everything that builds or patches a songbook (no DOM outside the *_action.js modals)
   chordpro_crate.js       folder walk, song/setlist parsing into RO-Crate entities, matching, key checks
   songbook_build.js       build orchestration: crate + songbook + preview, title/filename handling
   songbook_html.js        renders the songbook page from a crate
@@ -57,7 +57,7 @@ npm run generate:chordprobook-bundle
 
 `--no-save` keeps `package.json`/`package-lock.json` on the pinned commit, and `npm ci` puts it
 back. The songbook page embeds a copy of chordprobook
-(`src/chordpro-input/generated/chordprobook_browser_bundle.js`, committed), so regenerate it after
+(`src/songbook/generated/chordprobook_browser_bundle.js`, committed), so regenerate it after
 any chordprobook change. `build:site --strict` fails if the committed copy is stale.
 
 ## Command line
@@ -78,7 +78,7 @@ the folder tree is used.
 ## Publishing
 
 `npm run build:site` builds `site/`: a landing page from [`index.md`](index.md), the app at
-`/build/`, a demo songbook at `/demo/` (from `src/chordpro-input/samples/`, plus a zip of its
+`/build/`, a demo songbook at `/demo/` (from `src/songbook/samples/`, plus a zip of its
 source files), and [`docs/chordpro-format.md`](docs/chordpro-format.md). `npm run preview:site`
 serves the result locally. `.github/workflows/pages.yml` deploys it to GitHub Pages. See
 [`DEPLOY-SPEC.md`](DEPLOY-SPEC.md).

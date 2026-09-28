@@ -1,6 +1,6 @@
 // The songbook builder app: pick a folder, name the book, make it — then
 // review whatever the build had to guess. Everything that actually builds
-// or patches a songbook lives in src/chordpro-input/; this file is only the
+// or patches a songbook lives in src/songbook/; this file is only the
 // page around it.
 //
 // Under the hood each build writes an RO-Crate (ro-crate-metadata.json)
@@ -8,15 +8,15 @@
 // — but the page never needs to say so.
 
 import { scanFolder, extractReviewableSetlistMatches, extractReviewableSongKeys, extractCapoKeyMismatches,
-  extractUnresolvedSetlistEntries } from "../src/chordpro-input/chordpro_crate.js";
+  extractUnresolvedSetlistEntries } from "../src/songbook/chordpro_crate.js";
 import { buildSongbook, readBookSettings, normalizeSongbookFilename, songbookFileFromCrate, CRATE_FILE,
-  DEFAULT_SONGBOOK_FILE } from "../src/chordpro-input/songbook_build.js";
-import { bookTitleFromCrate, isCanonicalSong } from "../src/chordpro-input/songbook_html.js";
-import { verifyPermission, readJsonFromFolder, fileExists } from "../src/chordpro-input/fs_helpers.js";
-import { resolveSetlistMatches, reviewSetlistMatches } from "../src/chordpro-input/setlist_match_action.js";
-import { reviewKeyGuesses } from "../src/chordpro-input/key_review_action.js";
-import { normalizeCapoKeys } from "../src/chordpro-input/normalize_capo_key_action.js";
-import { fixStDirectives, findStDirectiveHits } from "../src/chordpro-input/fix_st_directive_action.js";
+  DEFAULT_SONGBOOK_FILE } from "../src/songbook/songbook_build.js";
+import { bookTitleFromCrate, isCanonicalSong } from "../src/songbook/songbook_html.js";
+import { verifyPermission, readJsonFromFolder, fileExists } from "../src/songbook/fs_helpers.js";
+import { resolveSetlistMatches, reviewSetlistMatches } from "../src/songbook/setlist_match_action.js";
+import { reviewKeyGuesses } from "../src/songbook/key_review_action.js";
+import { normalizeCapoKeys } from "../src/songbook/normalize_capo_key_action.js";
+import { fixStDirectives, findStDirectiveHits } from "../src/songbook/fix_st_directive_action.js";
 import { openModal } from "./modal.js";
 import { loadLastFolder, saveLastFolder } from "./folder_store.js";
 

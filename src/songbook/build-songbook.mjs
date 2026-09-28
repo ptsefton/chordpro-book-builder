@@ -13,7 +13,7 @@
 // default (SPEC.md §16).
 //
 // Usage:
-//   node src/chordpro-input/build-songbook.mjs <folder> [--title "My Songbook"] [--file my-songbook.html]
+//   node src/songbook/build-songbook.mjs <folder> [--title "My Songbook"] [--file my-songbook.html]
 //   npm run build:songbook -- <folder> [--title ...] [--file ...]
 import fs from "node:fs";
 import path from "node:path";
@@ -85,7 +85,7 @@ function parseArgs(argv) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args.folder) {
-    console.error('Usage: node src/chordpro-input/build-songbook.mjs <folder> [--title "..."] [--file name.html]');
+    console.error('Usage: node src/songbook/build-songbook.mjs <folder> [--title "..."] [--file name.html]');
     process.exitCode = 1;
     return;
   }

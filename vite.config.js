@@ -3,7 +3,7 @@
 import { defineConfig } from "vite";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const SONGBOOK_HTML = fileURLToPath(new URL("./src/chordpro-input/songbook_html.js", import.meta.url));
+const SONGBOOK_HTML = fileURLToPath(new URL("./src/songbook/songbook_html.js", import.meta.url));
 const PLACEHOLDER = "const SONGBOOK_APP_SOURCE = initSongbookApp.toString();";
 
 // songbook_html.js embeds initSongbookApp in every songbook it renders, as

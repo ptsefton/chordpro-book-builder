@@ -1,4 +1,4 @@
-/* The builder page. The review tools (src/chordpro-input/*_action.js)
+/* The builder page. The review tools (src/songbook/*_action.js)
    inject their own tile styles, written against the variables and the
    generic class names below (.hint, .actions, .mapping-*, .col-source,
    button.secondary) — keep those if restyling. */

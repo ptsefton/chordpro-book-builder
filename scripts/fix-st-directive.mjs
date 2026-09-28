@@ -1,5 +1,5 @@
 // Cleanup utility for ChordPro chart files written before this project's own
-// artist/subtitle split (chordpro-input's SPEC.md §5): PT's own charts going
+// artist/subtitle split (SPEC.md §5): PT's own charts going
 // back to around 2015 often use {st: ...} (subtitle) as a stand-in for
 // {artist: ...} — and sometimes for {composer: ...} instead — a habit that
 // predates {artist}/{subtitle} being distinct directives at all. This is a
@@ -32,8 +32,8 @@ import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline/promises";
 import JSZip from "jszip";
-import { DEFAULT_SONG_EXTENSIONS } from "../src/chordpro-input/chordpro_crate.js";
-import { findMatches, applyChoices } from "../src/chordpro-input/st_directive.js";
+import { DEFAULT_SONG_EXTENSIONS } from "../src/songbook/chordpro_crate.js";
+import { findMatches, applyChoices } from "../src/songbook/st_directive.js";
 
 function isIgnoredName(name) {
   return name.startsWith(".") || name.startsWith("~$");

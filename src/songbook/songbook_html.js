@@ -78,7 +78,7 @@ export function renderRedirectHtml(targetFile) {
 }
 
 // A canonical Song entity, not a setlist-entry proxy — both are typed
-// MusicComposition (chordpro-input's own SPEC.md §7). Told apart by
+// MusicComposition (SPEC.md §7). Told apart by
 // specializationOf (PROV, not schema.org — but present in RO-Crate's own
 // context regardless), the semantically correct relationship for this:
 // an entry that resolved to a song genuinely *is* a specialization of it,

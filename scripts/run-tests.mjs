@@ -10,7 +10,7 @@
 // without also having to be registered here — the old failure mode where the
 // wired-up suite and the actual suite drifted apart. Discovery is recursive
 // (not just tests/) because tests live colocated with the code they test,
-// in src/chordpro-input/. Each test runs
+// in src/songbook/. Each test runs
 // with its own containing directory as cwd, so a test that reads a fixture
 // via a relative path next to itself behaves the same regardless of where in
 // the tree it lives.

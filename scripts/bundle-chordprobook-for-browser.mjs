@@ -1,4 +1,4 @@
-// Generates src/chordpro-input/generated/chordprobook_browser_bundle.js
+// Generates src/songbook/generated/chordprobook_browser_bundle.js
 // — a flat, import/export-free concatenation of the specific chordprobook
 // modules the embedded songbook page's client-side app needs
 // (chords/Transposer.js, chords/ChordDiagram.js, ChordProSong.js, Song.js),
@@ -26,7 +26,7 @@ const chordprobookSrc = path.join(root, "node_modules", "chordprobook", "src");
 const outIndex = process.argv.indexOf("--out");
 const outputFile = outIndex > 0
   ? path.resolve(process.argv[outIndex + 1])
-  : path.join(root, "src", "chordpro-input", "generated", "chordprobook_browser_bundle.js");
+  : path.join(root, "src", "songbook", "generated", "chordprobook_browser_bundle.js");
 const outputDir = path.dirname(outputFile);
 
 // Order matters: ChordDiagram.js and Song.js's own source both reference

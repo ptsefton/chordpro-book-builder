@@ -1,5 +1,5 @@
 // Integration test for buildCrateFromChordProFolder
-// (src/chordpro-input/chordpro_crate.js), exercised against the real
+// (src/songbook/chordpro_crate.js), exercised against the real
 // chordprosite sample files under this repo's own samples/ rather than
 // synthetic fixtures — see SPEC.md for the design this implements.
 import assert from "node:assert/strict";

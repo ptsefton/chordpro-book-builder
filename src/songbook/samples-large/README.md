@@ -3,7 +3,7 @@
 A bigger, wholly invented ChordPro collection — not chordprosite's own real sample
 files (those live in `../samples/`), and not a real band's real songs. Every title,
 lyric, and chord chart here was written for this repo, for exercising
-`chordpro-input` at a more realistic scale: a few dozen songs across several
+the songbook builder at a more realistic scale: a few dozen songs across several
 folders, and a handful of setlists scattered around that same tree, some of them
 close to the songs they call, some of them far away.
 

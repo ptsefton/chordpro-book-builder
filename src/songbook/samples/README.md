@@ -2,7 +2,7 @@
 
 Copied verbatim from [chordprosite](https://github.com/ptsefton/chordprosite)'s
 `samples/` folder (same author, Peter Sefton, as this repo) for use as realistic
-test fixtures, and as the demo songbook's source — see `src/chordpro-input/SPEC.md`.
+test fixtures, and as the demo songbook's source — see `SPEC.md` at the repo root.
 
 Not copied: `sample.setlist.html` and `makefile`, which are chordprosite build
 artifacts with no relevance here.

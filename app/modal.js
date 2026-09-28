@@ -1,4 +1,4 @@
-// A minimal modal on top of <dialog>. The review tools (src/chordpro-input/
+// A minimal modal on top of <dialog>. The review tools (src/songbook/
 // *_action.js) build their own body content; this only supplies the shell.
 //
 // openModal({ title, modalClassName, onDismiss, render(body, close) })

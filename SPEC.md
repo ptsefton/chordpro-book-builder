@@ -1,7 +1,5 @@
 # ChordPro songbook builder — spec
 
-(The code lives in `src/chordpro-input/`; the folder name predates the standalone app.)
-
 ## 1. What this app does
 
 The songbook builder turns a folder of ChordPro song files and Markdown setlists into an
@@ -69,7 +67,7 @@ songs into an already-open page; exporting the crate as a downloadable RO-Crate 
 
 The app is a single page, `app/index.html`, driven by `app/main.js`, which is only the page
 around the build: everything that actually builds or patches a songbook lives in
-`src/chordpro-input/`. Supporting modules:
+`src/songbook/`. Supporting modules:
 
 - `app/modal.js` — `openModal({ title, modalClassName, onDismiss, render(body, close) })`, a
   minimal `<dialog>`-based shell. It resolves with whatever the tool passes to `close(value)`;
@@ -78,12 +76,12 @@ around the build: everything that actually builds or patches a songbook lives in
 - `app/folder_store.js` — remembers the last folder handle in IndexedDB, so a return visit
   offers "Reopen …" instead of a trip through the folder picker. Best-effort: blocked storage
   just means nothing is remembered.
-- `src/chordpro-input/fs_helpers.js` — the small File System Access API helpers everything
+- `src/songbook/fs_helpers.js` — the small File System Access API helpers everything
   else shares (`verifyPermission`, `fileExists`, `readFileText`, `readJsonFromFolder`,
   `writeFile`, `getFileHandleAtPath`, `writeFileAtPath`). Everything takes a
   `FileSystemDirectoryHandle`-shaped object, so tests and the CLI can pass in-memory or
   Node-backed stand-ins.
-- `src/chordpro-input/songbook_build.js` — build orchestration: `buildSongbook` (harvest the
+- `src/songbook/songbook_build.js` — build orchestration: `buildSongbook` (harvest the
   folder, record title and filename in the crate, write everything out), `writeOutputs`
   (writes `ro-crate-metadata.json`, the songbook page under the recorded filename, and
   `ro-crate-preview.html` — always overwriting; there is no overwrite option),
@@ -437,8 +435,8 @@ app/                           the browser app (§3) — Vite root
   modal.js                     <dialog>-based openModal()
   folder_store.js              remembers the last folder in IndexedDB ("Reopen …")
 vite.config.js                 Vite config, including the songbookAppSource transform (§10)
-src/chordpro-input/
-  SPEC.md                      this document
+SPEC.md                        this document
+src/songbook/
   songbook_build.js            build orchestration: buildSongbook, writeOutputs, title/filename
                                settings and the songbook File entity — §3, §7
   fs_helpers.js                shared File System Access API helpers — §3
@@ -535,7 +533,7 @@ that runs the same `buildSongbook` the app does, directly against a real folder 
 no browser and no File System Access API:
 
 ```
-node src/chordpro-input/build-songbook.mjs <folder> [--title "My Songbook"] [--file my-songbook.html]
+node src/songbook/build-songbook.mjs <folder> [--title "My Songbook"] [--file my-songbook.html]
 npm run build:songbook -- <folder> [--title ...] [--file ...]
 ```
 

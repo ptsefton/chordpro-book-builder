@@ -9,7 +9,7 @@
     "test": "node scripts/run-tests.mjs",
     "generate:chordprobook-bundle": "node scripts/bundle-chordprobook-for-browser.mjs",
     "fix:st-directive": "node scripts/fix-st-directive.mjs",
-    "build:songbook": "node src/chordpro-input/build-songbook.mjs",
+    "build:songbook": "node src/songbook/build-songbook.mjs",
     "build:site": "node scripts/build-site.mjs",
     "preview:site": "node scripts/build-site.mjs --serve"
   },

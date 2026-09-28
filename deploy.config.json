@@ -1,6 +1,6 @@
 {
   "demo": [
-    { "source": "src/chordpro-input/samples", "path": "demo", "title": "Sample songbook", "zip": "samples.zip" }
+    { "source": "src/songbook/samples", "path": "demo", "title": "Sample songbook", "zip": "samples.zip" }
   ],
 
   "appPath": "build",

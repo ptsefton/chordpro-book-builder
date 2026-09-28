@@ -1,7 +1,7 @@
 # Deployment spec
 
 How the static site is built from this repository and published to GitHub Pages. The app itself
-is specified in [`src/chordpro-input/SPEC.md`](src/chordpro-input/SPEC.md).
+is specified in [`SPEC.md`](SPEC.md).
 
 ## 1. Requirements
 
@@ -10,7 +10,7 @@ sibling checkouts, no manual configuration.
 
 R2. `<appPath>/` (`build/`) is the songbook builder app (`app/`, built with Vite).
 
-R3. `/demo/songbook.html` is a songbook rendered from `src/chordpro-input/samples/`, with the
+R3. `/demo/songbook.html` is a songbook rendered from `src/songbook/samples/`, with the
 same folder's source files downloadable as `/demo/samples.zip`.
 
 R4. The site root is a landing page rendered from [`index.md`](index.md), linking to the app,
@@ -42,7 +42,7 @@ commit is bundled into the app by Vite and embedded in every songbook, via the c
   // Each entry renders one folder to site/<path>/. `title` is the demo book's
   // title; `zip` adds a zip of the folder's source files.
   "demo": [
-    { "source": "src/chordpro-input/samples", "path": "demo", "title": "Sample songbook", "zip": "samples.zip" }
+    { "source": "src/songbook/samples", "path": "demo", "title": "Sample songbook", "zip": "samples.zip" }
   ],
 
   // Where the app lands. "" (or absent) puts it at the site root, in which

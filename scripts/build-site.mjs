@@ -105,7 +105,7 @@ function loadConfig() {
 function verifyBundle(workDir, strict) {
   const fresh = path.join(workDir, "chordprobook_browser_bundle.js");
   run("node", [path.join(repoRoot, "scripts", "bundle-chordprobook-for-browser.mjs"), "--out", fresh]);
-  const committed = path.join(repoRoot, "src", "chordpro-input", "generated", "chordprobook_browser_bundle.js");
+  const committed = path.join(repoRoot, "src", "songbook", "generated", "chordprobook_browser_bundle.js");
   if (readFileSync(fresh, "utf8") !== readFileSync(committed, "utf8")) {
     const msg = "the committed chordprobook_browser_bundle.js is stale relative to the installed chordprobook — "
       + "run \"npm run generate:chordprobook-bundle\" and commit the result.";
@@ -147,7 +147,7 @@ async function buildDemo(demoEntry, workDir, outDir) {
     if (GENERATED_ARTIFACT_NAMES.has(name)) continue;
     cpSync(path.join(sourceDir, name), path.join(scratch, name), { recursive: true });
   }
-  const cliArgs = [path.join(repoRoot, "src", "chordpro-input", "build-songbook.mjs"), scratch, "--file", "songbook.html"];
+  const cliArgs = [path.join(repoRoot, "src", "songbook", "build-songbook.mjs"), scratch, "--file", "songbook.html"];
   if (demoEntry.title) cliArgs.push("--title", demoEntry.title);
   run("node", cliArgs);
 

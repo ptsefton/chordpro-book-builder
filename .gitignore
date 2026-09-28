@@ -5,5 +5,5 @@ node_modules/
 site/
 
 # Build output, if you run the CLI on the sample folders
-src/chordpro-input/samples*/ro-crate-*
-src/chordpro-input/samples*/songbook.html
+src/songbook/samples*/ro-crate-*
+src/songbook/samples*/songbook.html

@@ -86,4 +86,4 @@ words in order (`## Amazing` matches "Amazing Grace"); `#` headings group songs 
 Add `{transpose: +2}` after a song's heading to override its transpose for that one
 performance.
 
-See [the full spec](https://github.com/ptsefton/chordpro-book-builder/blob/master/src/chordpro-input/SPEC.md).
+See [the full spec](https://github.com/ptsefton/chordpro-book-builder/blob/master/SPEC.md).
