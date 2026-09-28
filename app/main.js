@@ -303,6 +303,10 @@ async function openSongbook() {
 const SITE_URL = "https://ptsefton.com/chordpro-book-builder/build/";
 
 function adjustForSavedCopy() {
+  // Under `npm run dev` index.html is the unbuilt page, which loads app.css
+  // and main.js separately — a downloaded copy of it would have neither.
+  // Only the built page (everything inlined) is worth offering.
+  if (import.meta.env.DEV) show($("download-app"), false);
   if (location.protocol !== "file:") return;
   show($("download-app"), false); // this already is the offline copy
   for (const link of document.querySelectorAll(".site-header nav a[href]")) {
