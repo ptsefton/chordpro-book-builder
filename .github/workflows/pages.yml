@@ -1,6 +1,6 @@
 name: Deploy to GitHub Pages
 
-# Builds the chordpro-only chaos2crate app plus a demo songbook (see
+# Builds the songbook builder app, landing page and demo songbook (see
 # DEPLOY-SPEC.md) and publishes them to GitHub Pages.
 #
 # One-time setup: repo Settings -> Pages -> "Build and deployment" -> Source:

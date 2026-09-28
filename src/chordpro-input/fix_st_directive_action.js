@@ -1,26 +1,14 @@
-// "Fix old {st:} credits…" (SPEC.md §15) — a standalone folder-scoped
-// action, not a build-time configuration option, but shown the same way
-// every other plugin's own build options are: an optionSchema tile in the
-// Build view (main.js's renderOptionGroupTiles, `kind: "action"`), so it
-// reads as one more thing this plugin does rather than a separate UI
-// concept the host has to know about. Runs independently of the
-// crate-building pipeline entirely — clicking the tile scans the current
-// folder immediately, no "Build" required first or after.
-//
-// deps.openModal (chaos2crate's src/plugins/deps.js) is the only host
-// capability this needs beyond the plain I/O every plugin already gets —
-// it opens a modal shell and hands this file the body element to build
-// into, so chaos2crate's own index.html/main.js never has to know what a
-// {st:} directive is. The row list reuses the host's own generic
-// .mapping-head/.mapping-row/.col-source classes (already used by its own
-// merge/collection-labels builders) rather than injecting bespoke CSS.
+// "Fix old {st:} credits…" (SPEC.md §15) — a folder-scoped cleanup, not
+// part of a build: scans the song files for {st:} used as a performer or
+// composer credit, lets a human choose what each becomes, and rewrites the
+// files after backing them up. The app rebuilds the songbook afterwards so
+// the new credits show up. The row list uses the app's generic
+// .mapping-head/.mapping-row/.col-source classes (app/app.css).
 
-let verifyPermission, openModal;
+import { verifyPermission } from "./fs_helpers.js";
+import { findStDirectiveHits, applyStDirectiveFixes } from "./fix_st_directive_ui.js";
 
-export function createPlugin(deps) {
-  ({ verifyPermission, openModal } = deps);
-  return plugin;
-}
+export { findStDirectiveHits };
 
 function renderRows(container, hits) {
   const head = document.createElement("div");
@@ -60,24 +48,25 @@ function renderRows(container, hits) {
   });
 }
 
-async function run({ dirHandle, log }) {
+// Resolves to true if any song file was rewritten.
+export async function fixStDirectives({ dirHandle, log, openModal }) {
   if (!(await verifyPermission(dirHandle, true))) {
     log("Permission to read/write the folder was denied.", "err");
-    return;
+    return false;
   }
-  const { findStDirectiveHits, applyStDirectiveFixes } = await import("./fix_st_directive_ui.js");
   let hits;
   try {
     hits = await findStDirectiveHits(dirHandle);
   } catch (e) {
     log("Could not scan the folder for {st:} directives: " + (e && e.message ? e.message : e), "err");
-    return;
+    return false;
   }
   if (!hits.length) {
     log(`No {st:} directives found in ${dirHandle.name}.`, "info");
-    return;
+    return false;
   }
 
+  let changed = false;
   await openModal({
     title: "Fix old {st:} credits",
     modalClassName: "mapping-modal",
@@ -114,6 +103,7 @@ async function run({ dirHandle, log }) {
         });
         try {
           const result = await applyStDirectiveFixes(dirHandle, hits, choicesByNumber);
+          changed = result.filesChanged > 0;
           log(
             `Fixed {st:} credits: rewrote ${result.filesChanged} file(s), ${result.occurrences} occurrence(s). ` +
               `Backup: ${result.backupPath}`,
@@ -128,15 +118,5 @@ async function run({ dirHandle, log }) {
       body.appendChild(actions);
     },
   });
+  return changed;
 }
-
-const plugin = {
-  name: "fix-st-directive",
-  optionSchema: {
-    key: "fixStDirective",
-    kind: "action",
-    label: "Fix old {st:} credits…",
-    hint: "Rewrites {st:} directives left over from before this app split artist/subtitle, per-occurrence, with a backup.",
-    run,
-  },
-};

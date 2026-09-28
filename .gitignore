@@ -3,3 +3,7 @@ node_modules/
 .DS_Store
 .site-build/
 site/
+
+# Build output, if you run the CLI on the sample folders
+src/chordpro-input/samples*/ro-crate-*
+src/chordpro-input/samples*/songbook.html

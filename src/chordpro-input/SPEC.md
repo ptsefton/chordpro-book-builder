@@ -1,40 +1,43 @@
-# `chordpro-input` — spec
+# ChordPro songbook builder — spec
 
-## 1. What this plugin does
+(The code lives in `src/chordpro-input/`; the folder name predates the standalone app.)
 
-`chordpro-input` turns a folder of ChordPro song files and Markdown setlists into an
-RO-Crate, and then separately renders a conformant crate it built into a standalone, interactive, printable
-songbook HTML page.
+## 1. What this app does
 
-It has three Stages:
+The songbook builder turns a folder of ChordPro song files and Markdown setlists into an
+RO-Crate, and then renders that crate into a standalone, interactive, printable songbook HTML
+page, written back into the same folder. It is a standalone browser app (`app/`, built with
+Vite) plus a Node CLI (`build-songbook.mjs`) that runs the same build without a browser.
 
-- **Harvesting** (`index.js`, `chordpro_crate.js`): walks a picked folder, parses each song
-  and setlist file, and produces RO-Crate entities for them. This half only reads the source
-  folder — it never writes back to it, edits songs, transposes chords, or draws chord
+It has three stages:
+
+- **Harvesting** (`chordpro_crate.js`, orchestrated by `songbook_build.js`): walks the chosen
+  folder, parses each song and setlist file, and produces RO-Crate entities for them. This
+  stage only reads the source files — it never edits songs, transposes chords, or draws chord
   diagrams.
 
-- **Metadata entry and cleanup** (`fix_st_directive_ui.js`, `st_directive.js`,
-  `scripts/fix-st-directive.mjs`): a standalone tool, wired directly into the app's UI rather
-  than through this plugin's own `HOOKS` taps, for fixing up old charts whose metadata
-  predates this project's own `{artist}`/`{subtitle}` split (§5) — specifically, `{st: ...}`
-  used as a stand-in for a performer or composer credit. Unlike Harvesting and Songbook
-  rendering, this stage **can** write back into the picked folder: it rewrites `{st:}`
-  directives to `{artist:}`/`{composer:}` under a human's own per-occurrence choice, after
-  first backing up the affected files to a zip kept inside the folder itself. See §15.
+- **Metadata entry and cleanup** (`fix_st_directive_action.js`, `fix_st_directive_ui.js`,
+  `st_directive.js`, `scripts/fix-st-directive.mjs`, and the review tools
+  `key_review_action.js`/`normalize_capo_key_action.js`/`setlist_match_action.js`): tools the
+  app offers after a build, for fixing things the build had to guess or that old charts got
+  wrong — e.g. `{st: ...}` used as a stand-in for a performer or composer credit, which
+  predates this project's own `{artist}`/`{subtitle}` split (§5). Unlike Harvesting and
+  Songbook rendering, some of these tools **can** write back into song files: the `{st:}`
+  fix always does (§15), and the key tools do when their write-back checkbox is ticked
+  (§17, §18) — always under a human's own choice, after first backing up the affected files
+  to a zip kept inside the folder itself.
 
-- **Songbook rendering** (`songbook_html.js`): reads the RO-Crate this half of the plugin
-  just wrote and produces `songbook.html`, a single file containing the crate's own data
-  plus a client-side app that displays it — a song list, individual song views with
+- **Songbook rendering** (`songbook_html.js`, written out by `songbook_build.js`'s
+  `writeOutputs`): reads the crate and produces the songbook page (`songbook.html` by
+  default; the filename is chosen in the app — §3), a single file containing the crate's own
+  data plus a client-side app that displays it — a song list, individual song views with
   transposition and chord diagrams, setlists, and a print mode. This file is meant to be
-  opened directly (including as a `file://` URL) with no server and no build step. A
-  chordpro-mode build never runs `ro-crate-html-output`'s own static-site rendering — that
-  machinery targets generic tabular/document crates, not this one — so `ro-crate-preview.html`
-  becomes a small redirect to `songbook.html` instead (§10).
+  opened directly (including as a `file://` URL) with no server and no build step.
+  `ro-crate-preview.html` becomes a small redirect to it (§10).
 
-The three stages depend on [`chordprobook`](https://github.com/ptsefton/chordprobook-js) (a
+All three stages depend on [`chordprobook`](https://github.com/ptsefton/chordprobook-js) (a
 `github:` dependency, `"chordprobook": "github:ptsefton/chordprobook-js#main"` in
-`package.json` — see DEPLOY-SPEC.md §7 for working against a local sibling checkout instead)
-for ChordPro/setlist parsing, chord transposition, and chord-diagram rendering.
+`package.json`) for ChordPro/setlist parsing, chord transposition, and chord-diagram rendering.
 
 ## 2. Scope
 
@@ -43,8 +46,7 @@ for ChordPro/setlist parsing, chord transposition, and chord-diagram rendering.
 - Parse each song's metadata directives and capture its full raw text.
 - Parse each setlist's structure (title, set groupings, ordered entries, per-entry
   overrides, freeform notes) and resolve each entry to a song.
-- Produce RO-Crate entities for both, writable as JSON/xlsx/HTML by the rest of the host
-  app's own pipeline.
+- Produce RO-Crate entities for both, written out as `ro-crate-metadata.json`.
 - Render the resulting crate into a standalone songbook HTML page: song list, song view,
   setlists, key/capo/instrument controls, chord diagrams, print mode.
 - TODO - when PT asks: 
@@ -53,10 +55,9 @@ for ChordPro/setlist parsing, chord transposition, and chord-diagram rendering.
 
 **Out of scope (permanent, not deferred):**
 - Editing songs or setlists, or writing back to the source folder — true of Harvesting and
-  Songbook rendering (§1), which never do either. The one deliberate exception is the
-  `{st:}` cleanup tool (§1, §15), a standalone action outside
-  `runPipeline()`/`processFolder()` entirely, authorised specifically for that narrow
-  purpose.
+  Songbook rendering (§1), which never do either. The deliberate exceptions are the
+  cleanup and review tools (§1, §15, §17, §18), run only on request, after a build, and each
+  authorised for one narrow change to song files.
 
 - Any music-theory logic beyond what chordprobook already provides — transposition, capo
   math, and Nashville numbering are chordprobook's responsibility, not reimplemented here.
@@ -64,47 +65,73 @@ for ChordPro/setlist parsing, chord transposition, and chord-diagram rendering.
 **Deferred (§9):** creating or editing setlists in the songbook page; loading additional
 songs into an already-open page; exporting the crate as a downloadable RO-Crate file.
 
-## 3. Plugin registration
+## 3. The app
 
-This is an **input-mode plugin** (`INPUT_PLUGINS`, keyed by `inputMode: "chordpro"`), the same
-category as `c2c-plugins`' own `docx-input` — but sourced from this separate repo rather than
-from `c2c-plugins` itself (§8). See `c2c-plugins`' own README for the general `createPlugin(deps)`
-contract every plugin (additive or input-mode) follows, and `chaos2crate`'s own
-`scripts/select-plugins.mjs` for how a build actually selects an external input-mode plugin
-like this one (its own header comment documents the `INPUT_PLUGINS=mode=package` env var
-syntax).
+The app is a single page, `app/index.html`, driven by `app/main.js`, which is only the page
+around the build: everything that actually builds or patches a songbook lives in
+`src/chordpro-input/`. Supporting modules:
 
-- `index.js` exports `createPlugin(deps)`, returning the plugin object (`buildCrate(ctx)`,
-  dynamically importing `chordpro_crate.js` so its dependencies stay out of the main bundle
-  until a chordpro build actually runs). Declares no `deps` of its own — `buildCrate` only
-  touches `ctx`, never a host-supplied function — so the parameter is accepted for a
-  consistent call signature and otherwise ignored.
-- `songbook_html.js` separately exports its own `createPlugin(deps)`, for an **additive**
-  hook tap in `PLUGINS` (not `INPUT_PLUGINS`) on the literal `"output:write"` hook string,
-  alongside whatever other output plugins a given build selected (typically just
-  `ro-crate-json-output` — a chordpro-mode build has no use for `ro-crate-xlsx-output`/
-  `ro-crate-html-output`, per §10). It guards on `ctx.options.inputMode === "chordpro"` and
-  no-ops otherwise.
-- A chordpro build does not run `FILES_ANALYZE` (this plugin does its own folder walk inside
-  `buildCrate`, like `docx-input`), so hook handlers that tap `FILES_ANALYZE` (e.g.
-  `austlang`) do not run against a chordpro-mode build.
-- The `inputMode` select in `CORE_SETTINGS_SCHEMA` (`chaos2crate`'s own `src/main.js`) is
-  derived from whichever input-mode plugins a given build actually selected (`INPUT_PLUGINS`,
-  from `src/plugins/index.js`) — adding an external mode like this one needs no edit there.
-- `existing_crate_prefill.js` exports its own `createPlugin(deps)` too, for an additive tap
-  on the literal `"folder:picked"` hook string. Reads `ro-crate-metadata.json` out of the
-  picked folder, if one is already there, into `ctx.crateJson`/`ctx.crateSourceLabel` — the
-  chordpro-only equivalent of `c2c-plugins`' own `xlsx-crate-input`, which is the *only*
-  plugin that taps this hook and isn't part of this deployment's own plugin selection
-  (DEPLOY-SPEC.md §3). Without it, chaos2crate's own Describe-step prefill
-  (`populateCrateDetailsFromExistingCrate`) has nothing to read, so a folder already built
-  once — with a root-dataset name typed over the raw-folder-name default — silently forgets
-  that choice on every later visit to Describe, reverting to the default each time. No-ops
-  harmlessly if another tap already supplied `ctx.crateJson`, and if the folder has no
-  `ro-crate-metadata.json` yet (a first-ever build).
-- `Language-Research-Technology/c2c-masp-profiles`' own `chordpro-songs` profile sets
-  `buildOptions.inputMode: "chordpro"` (superseding this section's own earlier note that none
-  did) — see DEPLOY-SPEC.md §3a for how a bare visit to this deployment gets forced onto it.
+- `app/modal.js` — `openModal({ title, modalClassName, onDismiss, render(body, close) })`, a
+  minimal `<dialog>`-based shell. It resolves with whatever the tool passes to `close(value)`;
+  dismissing (×, Escape, a backdrop click) resolves with `onDismiss()`'s return value, or
+  `undefined`. The review tools build their own modal bodies and inject their own styles.
+- `app/folder_store.js` — remembers the last folder handle in IndexedDB, so a return visit
+  offers "Reopen …" instead of a trip through the folder picker. Best-effort: blocked storage
+  just means nothing is remembered.
+- `src/chordpro-input/fs_helpers.js` — the small File System Access API helpers everything
+  else shares (`verifyPermission`, `fileExists`, `readFileText`, `readJsonFromFolder`,
+  `writeFile`, `getFileHandleAtPath`, `writeFileAtPath`). Everything takes a
+  `FileSystemDirectoryHandle`-shaped object, so tests and the CLI can pass in-memory or
+  Node-backed stand-ins.
+- `src/chordpro-input/songbook_build.js` — build orchestration: `buildSongbook` (harvest the
+  folder, record title and filename in the crate, write everything out), `writeOutputs`
+  (writes `ro-crate-metadata.json`, the songbook page under the recorded filename, and
+  `ro-crate-preview.html` — always overwriting; there is no overwrite option),
+  `readBookSettings`, `normalizeSongbookFilename`, `songbookFileFromCrate`,
+  `recordSongbookFile`, and the `CRATE_FILE`/`PREVIEW_FILE`/`DEFAULT_SONGBOOK_FILE` names.
+
+**The flow** is three steps:
+
+1. **Choose your song folder.** `showDirectoryPicker` (read-write), then `scanFolder`
+   (`chordpro_crate.js`) reports how many songs and setlists it holds. A folder with neither
+   stops here.
+2. **Name your songbook.** Two fields: **Title** (the root dataset's `name`, used as the
+   songbook's own title — §10) and **File name** (the songbook page's filename, default
+   `songbook.html`). Both are prefilled by `readBookSettings` from an existing
+   `ro-crate-metadata.json` in the folder, else from the folder's own name and
+   `songbook.html`. `normalizeSongbookFilename` tidies what was typed: never a path (path
+   characters become `-`), always `.html` (`.htm` is left alone), can't start with `.`, and can't be one of the
+   generated RO-Crate names (`GENERATED_FILENAMES`) other than `songbook.html` itself.
+   "Make songbook" first awaits `resolveSetlistMatches` (the pre-build soft gate, §16), then
+   runs `buildSongbook`. If the filename changed since the last build, the old page is left in
+   place and the log says so.
+3. **Your songbook.** A result card with "Open songbook" and a "Worth a look" list of checks
+   read from the crate just written, each with a button where there is something to do:
+   - guessed keys → `reviewKeyGuesses` (§17);
+   - keys that look written as heard with the capo on → `normalizeCapoKeys` (§18);
+   - ambiguous setlist matches → `reviewSetlistMatches` (§16);
+   - unresolved setlist entries (`extractUnresolvedSetlistEntries`, `chordpro_crate.js`) —
+     information only, each listed with its setlist and set, since the fix is in the setlist
+     or song file itself;
+   - old `{st:}` credits → `fixStDirectives` (§15).
+
+   Opening a folder that already has a crate and its songbook goes straight to this card.
+
+**Where the settings live.** Title and filename are stored in the crate itself — the title as
+the root dataset's `name`, the filename as a `File` entity the root dataset `hasPart` (§7) —
+so the next visit to the same folder prefills both from what is already on disk, with nothing
+stored anywhere else.
+
+**The review tools** (`setlist_match_action.js`, `key_review_action.js`,
+`normalize_capo_key_action.js`, `fix_st_directive_action.js`) are plain async functions taking
+`{ dirHandle, log, openModal }`, each opening its own modal and reporting whether anything
+changed. The three review tools read the crate fresh off disk, patch it, and re-render via
+`writeOutputs` (so a custom songbook filename is respected); `fixStDirectives` only touches
+song files and leaves the crate to the rebuild that follows. **After a tool that rewrote song files** — key or capo write-back, or
+the `{st:}` fix — the app runs "Make songbook" again automatically, so the crate's copy of
+those songs catches up; a tool that only patched the crate just refreshes the result card.
+
+`build-songbook.mjs` (§10) runs the same `buildSongbook` from the command line.
 
 ## 4. File discovery
 
@@ -117,19 +144,12 @@ is classified by extension:
 | `.setlist.md` | Setlist (Markdown) |
 | anything else | ignored |
 
-Both are configurable via `optionSchema`:
+The walk takes `opts.songExtensions`/`opts.setlistSuffix` overrides
+(`harvestFilesAndTitles`, `chordpro_crate.js`), but the app and CLI always use the defaults.
 
-```js
-optionSchema: {
-  key: "chordproSongExtensions",
-  label: "Song file extensions",
-  default: [".pro", ".cho", ".cho.txt"],
-  hint: "Files with these extensions are parsed as ChordPro song charts.",
-},
-```
-
-Dotfiles and common editor/OS artifacts (`.DS_Store`, `~$*`, etc.) are skipped, matching
-`docx-input`'s own convention.
+Dotfiles and common editor/OS artifacts (`.DS_Store`, `~$*`, etc.) are skipped, as are the
+files a build writes (`GENERATED_FILENAMES`) — a songbook saved under a custom filename needs
+no entry there, since only song and setlist extensions are ever harvested.
 
 ## 5. Parsing a song file
 
@@ -205,7 +225,7 @@ Tune guitars to drop D now.   <- freeform text before the first entry becomes th
   share a literal name are only treated as one group when they're directly adjacent, since
   grouping works from the flat entry list alone, without tracking each `#` line's own position
   in the file. A setlist that genuinely repeats a set name for two separate, non-adjacent
-  sections is a known, accepted edge case this plugin doesn't try to disambiguate further
+  sections is a known, accepted edge case this app doesn't try to disambiguate further
   (`test-chordpro-crate.mjs` documents the exact behaviour, rather than treating it as a bug).
 - **Entry-level overrides.** `{transpose: N}` / `{tr: N}` and `{capo: N}` found inline on a
   `##` line become `custom:transpose` / `custom:capo` directly on the entry, taking
@@ -224,7 +244,7 @@ Tune guitars to drop D now.   <- freeform text before the first entry becomes th
 5. **Exactly one match:** linked via `specializationOf`; `custom:matchStatus` is `"exact"` or
    `"fuzzy"` depending on which step matched.
 6. **Multiple matches:** `matchEntryToSong` (chordprobook) itself just returns every candidate
-   in whatever order it found them, picking the first as a placeholder — this plugin's own
+   in whatever order it found them, picking the first as a placeholder —
    `chordpro_crate.js` doesn't use that placeholder as-is. It re-ranks the candidates by
    path-proximity to the setlist file (closest first — SPEC.md §16) and links `specializationOf`
    to the top-ranked one (so an entry always has a definite `specializationOf` when any match
@@ -235,10 +255,9 @@ Tune guitars to drop D now.   <- freeform text before the first entry becomes th
    A build-log warning is also emitted.
 
 `matchStatus` is present on every entry, not only ones that failed to resolve. See §16 for how
-ambiguous matches are meant to be resolved by a host app's own UI (as opposed to
-`matchEntryToSong`'s own placeholder pick, which is all a bare chordprobook consumer with no
-file-path context to rank by ever gets) — and §16's own "Status" note for what that UI's
-current state actually is.
+the app lets a human resolve ambiguous matches (as opposed to `matchEntryToSong`'s own
+placeholder pick, which is all a bare chordprobook consumer with no file-path context to rank
+by ever gets).
 
 ### 6.2 Setlist and set display
 
@@ -281,6 +300,25 @@ within it would be redundant.
 
 
 ## 7. Entity shapes
+
+**Root dataset and the songbook file.** The root dataset's `name` is the book title chosen in
+the app (§3) — `applyRootDataset` (`chordpro_crate.js`) falls back to "Songbook" when none is
+given — and is what the songbook page uses as its own title (§10). The songbook page itself is
+recorded as a `File` entity, referenced from the root dataset's `hasPart`, by
+`recordSongbookFile` (`songbook_build.js`); a later build under a different filename replaces
+it (and its `hasPart` reference) rather than adding a second one. `songbookFileFromCrate`
+finds it again as the `File` with `encodingFormat: "text/html"` that isn't
+`ro-crate-preview.html`; a crate that records none means plain `songbook.html`.
+
+```jsonc
+{
+  "@id": "songbook.html",
+  "@type": "File",
+  "name": "Songbook",
+  "description": "Interactive, printable songbook generated from the songs and setlists in this crate.",
+  "encodingFormat": "text/html"
+}
+```
 
 No custom `@type` is minted. A Song and a setlist entry are both typed `MusicComposition`; a
 Setlist and each of its own nested "#" sets (§6) are both typed `MusicPlaylist` — told apart
@@ -368,7 +406,7 @@ a real setlist file's own path can never look like (a "#" isn't valid in one).
 | an entry's link to the song it performs | `specializationOf` | standard (`CreativeWork`) |
 | capo position | `custom:capo` | custom — a string containing an integer on a Song entity (a song's own `{capo}`, SPEC.md §5); a JS number on a setlist entry (an inline `{capo: N}` override, parsed independently by `Setlist.js`, SPEC.md §6) — the one property in this crate whose type depends on which kind of entity carries it |
 | transpose value | `custom:transpose` | custom |
-| this plugin's confidence in a match | `custom:matchStatus` | custom |
+| the build's confidence in a match | `custom:matchStatus` | custom |
 | every candidate when a match was ambiguous, closest-in-the-tree first | `custom:matchCandidates` | custom (SPEC.md §16) |
 | whether a song's `musicalKey` was guessed, human-confirmed, or never touched at all | `custom:keyStatus` | custom (SPEC.md §17) — absent for an authored `{key:}`, same "present only when it means something" convention as `custom:matchCandidates` |
 
@@ -390,75 +428,56 @@ this crate at all — notes use `text` instead, deliberately, per this section's
 
 ## 8. File layout
 
-This plugin now lives in its own repository, `ptsefton/c2c-chordpro-plugin` — extracted from
-`resources2crate` when that project's own successor, `chaos2crate`
-(`Language-Research-Technology/chaos2crate`), split every plugin out of the core app into a
-separate `c2c-plugins` repo. Checked out as a sibling to `chaos2crate`, the same way
-`c2c-plugins` itself is, and wired in via a `"c2c-chordpro-plugin": "file:../c2c-chordpro-plugin"`
-dependency in the host app's own `package.json` plus an `INPUT_PLUGINS=chordpro=c2c-chordpro-plugin`
-entry passed to `chaos2crate`'s `scripts/select-plugins.mjs` (see that script's own header
-comment for the exact env var syntax). See this repo's own README for the full setup.
-
 ```
+app/                           the browser app (§3) — Vite root
+  index.html                   the page: folder, name, result steps
+  main.js                      the flow and the "Worth a look" checks
+  app.css                      app styles (including the generic modal/row classes the
+                               review tools use)
+  modal.js                     <dialog>-based openModal()
+  folder_store.js              remembers the last folder in IndexedDB ("Reopen …")
+vite.config.js                 Vite config, including the songbookAppSource transform (§10)
 src/chordpro-input/
-  SPEC.md                     this document
-  index.js                    plugin registration: createPlugin(deps) returning
-                               { name, inputMode: "chordpro", buildCrate(ctx) }
+  SPEC.md                      this document
+  songbook_build.js            build orchestration: buildSongbook, writeOutputs, title/filename
+                               settings and the songbook File entity — §3, §7
+  fs_helpers.js                shared File System Access API helpers — §3
   chordpro_crate.js            folder walk and RO-Crate entity assembly; imports
-                               ChordProSong/parseSetlist/matchEntryToSong from chordprobook
-  crate_index.js                dependency-free @id/@type index over a written crate's JSON
+                               ChordProSong/parseSetlist/matchEntryToSong/guessKey from
+                               chordprobook
+  crate_index.js               dependency-free @id/@type index over a written crate's JSON
                                (buildCrateIndex/toArray/firstValue/resolveRef/entitiesOfType)
                                — does not use the `ro-crate` npm library
-  songbook_html.js              renders the crate into songbook.html — see §10-§13
+  songbook_html.js             renders the crate into the songbook page — see §10-§13
   generated/
     chordprobook_browser_bundle.js
                                generated; do not edit by hand — see §10
+  st_directive.js              isomorphic {st:} match/rewrite core — see §15
+  fix_st_directive_ui.js       browser-only shell (folder walk, zip backup, write-back) — §15
+  fix_st_directive_action.js   fixStDirectives: the "Fix credits…" modal — §15
+  setlist_match_action.js      resolveSetlistMatches (pre-build soft gate) and
+                               reviewSetlistMatches — see §16
+  key_review_action.js         reviewKeyGuesses, with optional backup + write-back — §17
+  normalize_capo_key_action.js normalizeCapoKeys, with optional backup + write-back — §18
+  build-songbook.mjs           standalone Node CLI running the same build — see §10
   samples/                     chordprosite's own sample files, used as test fixtures
+  samples-large/               a larger, invented collection (same-titled songs, scattered
+                               setlists) for exercising matching at scale
   test-chordpro-song.mjs       regression test for chordprobook's ChordProSong
   test-chordpro-setlist.mjs    regression test for chordprobook's parseSetlist/matchEntryToSong
   test-chordpro-crate.mjs      integration test for chordpro_crate.js against samples/
   test-crate-index.mjs         unit tests for crate_index.js
+  test-songbook-build.mjs      songbook_build.js end to end, against an in-memory folder
   test-songbook-html.mjs       unit/integration tests for songbook_html.js
-  st_directive.js              isomorphic {st:} match/rewrite core — see §15
-  fix_st_directive_ui.js       browser-only shell (folder walk, zip backup, write-back) — see §15
-  fix_st_directive_action.js    additive plugin wiring the above into a "kind: action" tile — §15
-  setlist_match_action.js       additive plugin: pre-build soft gate + review tile — see §16
-  existing_crate_prefill.js      additive plugin: "folder:picked" tap supplying ctx.crateJson
-                               for chaos2crate's own Describe-step prefill — see §17
-  key_review_action.js          additive plugin: "Review guessed keys…" tile, backup + write-
-                               back to the song files — see §17
-  normalize_capo_key_action.js  additive plugin: "Normalize capos and keys…" tile, backup +
-                               write-back to the song files — see §18
   test-st-directive.mjs        unit tests for st_directive.js
-  test-existing-crate-prefill.mjs  unit tests for existing_crate_prefill.js
-  build-songbook.mjs            standalone Node CLI: builds songbook.html with no browser/app
-                               UI involved — see §10
 ```
 
-`chordprobook` is dynamically imported from `buildCrate` (via `chordpro_crate.js`, itself
-dynamically imported from `index.js`), so it stays out of the main application bundle until
-a chordpro build actually runs.
+`chordprobook` is imported statically; Vite bundles it into the app.
 
-Tests are colocated with the plugin's own code, discovered recursively by
-`scripts/run-tests.mjs`, rather than living under the top-level `tests/` folder.
+Tests are colocated with the code, discovered recursively by `scripts/run-tests.mjs`.
 
-**This plugin has moved into its own repository** (see this section's own opening note),
-installable standalone without any particular host app. `build-songbook.mjs` (§10) was
-already written to depend on nothing outside this folder besides Node builtins and the
-`chordprobook` npm package this plugin already requires regardless, and `st_directive.js`
-(§15) is a pure, dependency-free module in the same spirit — neither needed any change for the
-move. Everything else that used to reach directly into `resources2crate`'s own source now
-either keeps a local copy instead (`chordpro_crate.js`'s own `GENERATED_FILENAMES`/
-`CONTROL_FILENAMES`, mirroring the host app's `crate.js`; `fix_st_directive_ui.js`'s own
-`writeFileAtPath`, mirroring the host app's `fs_helpers.js`) or is handed the host's own
-functions via `createPlugin(deps)` instead of importing them (`songbook_html.js`'s
-`writeFile`/`readJsonFromFolder`/`fileExists`) — the same `createPlugin(deps)`/literal-hook-
-string contract every `c2c-plugins` plugin follows, so this repo has zero import dependency on
-its host's source either way. See `c2c-plugins`' own README for that contract in full.
-
-A `docs/chordpro-authoring.md` file, parallel to `docs/docx-authoring.md`, documenting the
-setlist dialect (§6), matching behaviour (§6.1), and configurable extensions (§4) for the
-person writing song/setlist files, has not yet been written.
+A `docs/chordpro-format.md` file documents the ChordPro conventions this app expects for the
+person writing song/setlist files.
 
 ## 9. Deferred and open
 
@@ -473,15 +492,12 @@ person writing song/setlist files, has not yet been written.
 
 **Open questions:**
 1. Whether a top-level folder should carry structural meaning (a grouping entity, as
-   `generic-input`/`docx-input` treat top-level folders), or remain unrepresented regardless
+   some other RO-Crate tools treat top-level folders), or remain unrepresented regardless
    of how files are organised on disk.
 2. Whether archival fidelity — retaining byte-identical original files, not just their
    parsed text — is required, given the crate currently stores only parsed text.
 3. Duplicate or near-duplicate song titles from different files are not deduplicated or
    cross-referenced in any way; they simply coexist as unrelated entities.
-4. ~~No MASP profile currently selects `inputMode: "chordpro"`~~ — `c2c-masp-profiles`' own
-   `chordpro-songs` now does (§3); an end-to-end build against the bundled default profile
-   still requires manual configuration in Settings, same as before.
 
 
 ---
@@ -489,7 +505,12 @@ person writing song/setlist files, has not yet been written.
 ## 10. Songbook HTML output — what the file contains
 
 `renderSongbookHtml(crateJson)` in `songbook_html.js` produces one self-contained HTML file,
-written as `songbook.html`. It contains three `<script>` elements, all **classic, not
+written by `writeOutputs` (`songbook_build.js`) under whatever filename the crate records (§7)
+— `songbook.html` unless the app was given another. It is a pure function of the crate JSON,
+so a full build and every review tool that patches a crate on disk re-render it the same way.
+The page's `<title>`, the song list's `<h1>`, and the printed book's title page all use the
+root dataset's `name` (`bookTitleFromCrate`, re-expressed inline inside `initSongbookApp`),
+falling back to "Songbook". It contains three `<script>` elements, all **classic, not
 `type="module"`** — a module script's cross-origin rules block it entirely when the page is
 opened as a `file://` URL, which is how this file is meant to be opened:
 
@@ -501,50 +522,33 @@ opened as a `file://` URL, which is how this file is meant to be opened:
    exported from `songbook_html.js` and embedded via `.toString()` (its actual source, not
    a hand-written duplicate), constituting the entire client-side app.
 
-**`ro-crate-preview.html` is a redirect to this file, not a second preview.** This plugin's
-own `songbook_html.js` writes it itself, right after `songbook.html`, in the same
-`"output:write"` hook run (`renderRedirectHtml`) — not `c2c-plugins`' own
-`ro-crate-html-output`, which has no chordpro-specific case of its own at all (it wasn't
-carried over when this plugin was split out into its own repo, so this plugin now owns that
-job outright; see §8's own note on why that's safe given this app's own plugin selection).
-`songbook.html` is this mode's real preview; a second, generic rendering of the same crate
-via `ro-crate-html-output` would be redundant and wouldn't render a song/setlist crate
-meaningfully anyway. `ro-crate-preview.html` is kept as a real (if trivial) file rather than
-omitted because the host app's own "Show" step still expects an `HTML_FILE` to open when one
-exists, ahead of falling back to JSON/xlsx.
-
-That redirect page posts the same `{ source: "r2c-preview", page: "songbook.html" }` message
-`chaos2crate`'s own `main.js` (`PREVIEW_NAV_SCRIPT`) sends on a click-through, directly on
-load, rather than a plain relative-URL navigation: the host app's own preview popup
-(`openHtmlInNewTab`/`openPageInPreview`) shows crate-generated pages via `blob:` URLs, which a
-normal relative `href`/`location` change can't navigate away from correctly. `window.opener`
-is what makes this work from inside that popup; opened with no opener at all (a real
-`file://` URL, e.g. someone double-clicking it outside the app), it falls back to a plain
-`window.location.replace("songbook.html")` instead. Tested by this repo's own
-`test-songbook-html.mjs`.
+**`ro-crate-preview.html` is a redirect to this file, not a second preview.** `writeOutputs`
+writes it right after the songbook, via `renderRedirectHtml(songbookFile)`: a plain
+`<meta http-equiv="refresh">` to the songbook's filename, plus a link to it for anything that
+doesn't follow the refresh. The songbook *is* this crate's human-readable preview; a second,
+generic rendering of the same crate wouldn't show a song/setlist crate meaningfully anyway.
+`ro-crate-preview.html` is kept as a real (if trivial) file because it is the conventional
+RO-Crate entry point.
 
 **Building a songbook without the app at all.** `build-songbook.mjs` is a standalone Node CLI
-that runs the same two steps a real app build does for chordpro mode — `buildCrateFromChordProFolder`
-then `renderSongbookHtml` — directly against a real folder on disk, with no browser, no File
-System Access API, and no host-app UI in between:
+that runs the same `buildSongbook` the app does, directly against a real folder on disk, with
+no browser and no File System Access API:
 
 ```
-node src/chordpro-input/build-songbook.mjs <folder>
-npm run build:songbook -- <folder>
+node src/chordpro-input/build-songbook.mjs <folder> [--title "My Songbook"] [--file my-songbook.html]
+npm run build:songbook -- <folder> [--title ...] [--file ...]
 ```
 
-It wraps the folder in a small read-only stand-in for the File System Access API's own
-directory-handle shape (`values()` yielding `{kind, name, getFile()|values()}`) —
-`buildCrateFromChordProFolder` itself has no idea whether it's talking to a real browser handle
-or this Node-backed one — writes `ro-crate-metadata.json` (`crate.getJson()`, the same plain
-graph object a real build's `ro-crate-json-output` plugin serializes — this script doesn't
-import that plugin or `crate.js`'s own one-line `crateToJsonString` wrapper, for the
-self-containment reason in the script's own header comment, but produces byte-for-byte
-equivalent JSON), then `songbook.html`. Reports song/setlist counts and any unresolved/
-ambiguous setlist-entry matches (SPEC.md §6.1) to stdout, the same warnings `onProgress`
-already surfaces inside the app's own build log. Does not write `ro-crate-preview.html` — that
-redirect stub exists only for the app's own "Show" button (this section, above), which a
-headless CLI run has no equivalent of.
+It wraps the folder in a small read-write stand-in for the File System Access API's own
+directory-handle shape (`values()`/`getDirectoryHandle()`/`getFileHandle()`, with
+`getFile()`/`createWritable()` on files) — `buildSongbook` has no idea whether it's talking to
+a real browser handle or this Node-backed one — and so writes the same three files the app
+does. Title and filename default to what `readBookSettings` finds in an existing crate (else
+the folder name and `songbook.html`), exactly as the app prefills them; `--title`/`--file`
+override. It never prompts: ambiguous setlist matches reuse any choice persisted in an earlier
+crate (`extractPersistedSetlistMatches`, §16) and otherwise get the path-proximity default.
+Reports song/setlist counts and any unresolved/ambiguous setlist-entry matches (§6.1) to
+stdout.
 
 **Embedding chordprobook.** `initSongbookApp` calls `ChordProSong`, `renderSong`,
 `Transposer`, and `ChordDiagram` as bare globals, since nothing can `import` anything once
@@ -564,13 +568,25 @@ generate:chordprobook-bundle`; nothing regenerates it automatically) from:
   time and emitted as plain JSON — the browser never parses raw `.cho` text.
 
 A generated `.js` file exporting plain string/JSON constants is what makes this importable
-identically under Vite (this app's real bundle) and under plain Node (this repo's own
-tests); a Vite `?raw` import only works under Vite, and `fs.readFileSync` only works under
-Node.
+identically under Vite (the app's bundle) and under plain Node (this repo's own
+tests and the CLI); a Vite `?raw` import only works under Vite, and `fs.readFileSync` only
+works under Node.
+
+**Keeping the embedded source intact under Vite.** `initSongbookApp` reaches the page as
+source text (`const SONGBOOK_APP_SOURCE = initSongbookApp.toString();`), so in the app's
+bundle it would otherwise be whatever the bundler made of the function — renamed parameters,
+minified names — and any free global it renamed would break every songbook the app writes.
+`vite.config.js`'s `songbookAppSource` transform plugin swaps that line for a string literal
+of the function's source as Node sees it, read fresh on every build (and on every change under
+`npm run dev`), so bundler renaming never reaches the embedded code; it fails the build if the
+placeholder line is missing. The import-aliasing in `songbook_html.js` (the data constants
+imported under different names from the bare globals `initSongbookApp` uses — see that file's
+comments) is still in place and still matters: it keeps the function's free references from
+ever binding to a module import, so the embedded text stays correct under plain Node (tests,
+CLI) and in any bundling that doesn't run this transform.
 
 `initSongbookApp` cannot import `crate_index.js` or chordprobook normally — it runs inside
-the generated page, on whatever machine later opens it, not inside this plugin or its host
-app. It
+the generated page, on whatever machine later opens it, not inside this app. It
 re-implements the "is this a canonical song" check inline for the same reason: an entity is
 a canonical Song, not a setlist-entry proxy, when it carries neither `specializationOf` nor
 `custom:matchStatus` (§7) — the two share `MusicComposition` as their `@type`, so this is
@@ -1158,9 +1174,11 @@ enough entries, or long enough notes, to need it. No page numbers, same reasonin
 ## 14. Visual design
 
 High contrast: plain black-on-white (white-on-black under `prefers-color-scheme: dark`).
-**Red (`--chord`) is otherwise reserved for chord names** — every other control (buttons,
+Chord names are red on white and, on screen in dark mode, yellow on black
+(`@media screen and (prefers-color-scheme: dark)` — screen only, so printing from a dark-mode
+browser still gives red chords). **That colour (`--chord`) is otherwise reserved for chord names** — every other control (buttons,
 borders, the menu bar) uses black/white rather than a colour of its own. The one deliberate
-exception is a setlist entry's `~` match-status mark (§11) — PT asked for red there
+exception is a setlist entry's `~` match-status mark (§11), which follows `--chord` — PT asked for red there
 specifically, over an earlier bordered-badge version — so red now means two things instead of
 one, though the two never appear in the same view, which keeps the practical ambiguity low.
 Chorus/bridge passages and tab blocks are set off by a border rule, never a background tint —
@@ -1177,28 +1195,22 @@ PT's own ChordPro chart collection goes back to around 2015, predating this proj
 actually a performer or composer credit, not a genuine subtitle. This tool finds those
 occurrences and rewrites them under a human's own per-occurrence choice — it never guesses.
 
-**Not a `HOOKS`-based plugin tap.** Every other stage of this plugin runs inside
-`runPipeline()`/`processFolder()` (§3), triggered by a build. This tool is a standalone
-action meant to be wired directly into a host app's own `main.js`/`index.html` — e.g. a
-`#fixStBtn` button in a folder-scoped context bar, alongside Show/Edit/Build, enabled
-whenever a folder is picked regardless of input mode or whether a crate has ever been built.
-It runs independently of the crate-building pipeline entirely.
+**Not part of a build.** This tool runs on request from the app's result card (§3): the
+"old `{st:}` credits" check runs `findStDirectiveHits` after every build and, if there are
+any, offers "Fix credits…" (`fixStDirectives`, `fix_st_directive_action.js`). Since it
+rewrites song files, the app runs "Make songbook" again once it has applied anything, so the
+new credits reach the crate and the songbook.
 
 **Status.** `st_directive.js` (the shared, isomorphic matching/rewrite core) and
 `scripts/fix-st-directive.mjs` (the Node CLI, run by hand — see `package.json`'s own
 `fix:st-directive` script) are both implemented and tested in this repo, exactly as described
-below. `fix_st_directive_ui.js` (the browser-only shell around that same core) is also
-implemented, but has no automated test of its own (it's a thin File System Access API shell —
-see its own header comment; exercising it needs a real browser, same caveat as this project's
-other browser-only code). Originally wired directly into `resources2crate`'s own
-`main.js`/`index.html`, before this plugin's extraction into its own repo — now wired instead
-via `fix_st_directive_action.js`, an ordinary additive plugin (`kind: "action"` optionSchema
-tile, `deps.openModal`) requiring no chaos2crate-side wiring of its own at all beyond what
-every plugin already gets (§16's own note has the fuller account of that mechanism).
+below. `fix_st_directive_ui.js` (the browser-only shell around that same core) and
+`fix_st_directive_action.js` (the modal around it) are also implemented, but have no
+automated test of their own (thin File System Access API/DOM shells; exercising them needs a
+real browser, same caveat as this project's other browser-only code).
 
 **Shared, isomorphic core.** `st_directive.js` is pure string-in/string-out logic — no file
-I/O — the same isomorphic split `crate.js`'s own header comment describes for a different
-reason, and reused as-is by both `scripts/fix-st-directive.mjs` (the original, Node CLI
+I/O — reused as-is by both `scripts/fix-st-directive.mjs` (the original, Node CLI
 version of this tool, run by hand against a real chart collection) and
 `fix_st_directive_ui.js` (the browser shell below), so the actual `{st:}`-matching and
 rewrite rules exist exactly once. It exports:
@@ -1241,45 +1253,36 @@ tool needs, independent of `chordpro_crate.js`'s own (reusing its exported
   then rewrites each affected file in place via `applyChoices`.
 
 **Why the backup stays out of a crate build with no new code.** A dot-prefixed folder is
-already invisible to every folder walk in this codebase — `chordpro_crate.js`'s own
-`isIgnoredName` and `main.js`'s `walkDirectory` both unconditionally skip anything starting
+already invisible to every folder walk in this codebase — `chordpro_crate.js`'s and
+`fix_st_directive_ui.js`'s own `isIgnoredName` both unconditionally skip anything starting
 with `.` — so `.chordpro-cleanup-backups/` needs no entry in `GENERATED_FILENAMES`/
-`CONTROL_FILENAMES` (`crate.js`) to stay out of the crate this plugin builds.
+`CONTROL_FILENAMES` (`chordpro_crate.js`) to stay out of the crate.
 
-**The UI itself**: clicking `#fixStBtn` scans the current folder; if there are no hits, a
-one-line "nothing to fix" message goes to the build log instead of opening anything.
-Otherwise `#fixStDirectiveModal` lists every hit (file path, line, matched value) each with a
-`<select>` — Artist / Composer / Both / Leave as `{st:}` — defaulting to Artist, styled like
-the app's other row-based modals (`#collectionLabelsModal`, `#mergeMappingModal`). Applying
-reads every row's choice, calls `applyStDirectiveFixes`, and logs a result summary (files
-changed, occurrences, backup path) the same way the Build view logs its own results.
+**The UI itself**: "Fix credits…" re-scans the folder (if there are no hits, a one-line
+"nothing to fix" message goes to the log instead of opening anything), then opens a modal via
+`openModal` listing every hit (file path, line, matched value) each with a `<select>` —
+Artist / Composer / Both / Leave as `{st:}` — defaulting to Artist, using the app's generic
+`.mapping-head`/`.mapping-row` classes (`app/app.css`). "Apply" reads every row's choice,
+calls `applyStDirectiveFixes`, and logs a result summary (files changed, occurrences, backup
+path); "Cancel" changes nothing. `fixStDirectives` resolves to whether any file was
+rewritten, which is what triggers the rebuild.
 
 ## 16. Resolving ambiguous setlist matches
 
 **Status:** the data-side logic below (`rankCandidatesByPath`, `findAmbiguousSetlistMatches`,
 `extractReviewableSetlistMatches`, persisted-choice reuse, all in `chordpro_crate.js`) is fully
-implemented in this repo and covered by `test-chordpro-crate.mjs`. The UI it was designed
-for was originally wired directly into `resources2crate`'s own `main.js`/`index.html`, before
-this plugin was extracted into its own repo — describing what follows below (the tile UI, the
-pre-build soft gate, the two-modal split) as a design that still needed a *host* to wire up.
-It's since been rewired as `setlist_match_action.js`, an ordinary **additive** plugin sitting
-entirely on this repo's own side of the boundary: `deps.openModal` (a generic modal shell
-chaos2crate's own `src/plugins/deps.js` hands every plugin) plus an optionSchema tile of
-`kind: "action"` (`main.js`'s `renderOptionGroupTiles`, a plain button that calls the tile's
-own `run(runtime)` handler) are the only host capabilities either half of this feature needs —
-both already existed in chaos2crate for unrelated reasons, so nothing chaos2crate-specific had
-to be written or reviewed on that side at all. `#setlistMatchModal` below is now that same
-plugin's own in-memory modal, not a literal element id in `chaos2crate`'s `index.html`; "a host
-app's own UI" throughout this section now means this plugin's own action-tile UI, not
-something still waiting on a separate integration.
+implemented and covered by `test-chordpro-crate.mjs`. The UI is `setlist_match_action.js`:
+`resolveSetlistMatches` (the pre-build soft gate) and `reviewSetlistMatches` (the result
+card's "Review setlist matches…" button, §3), both building their modal bodies inside the
+app's `openModal`.
 
 `matchEntryToSong` (chordprobook, §6.1) can only report *that* an entry matched more than one
 song — it has no notion of file paths at all, so it has no principled way to prefer one
-candidate over another and just picks the first it happened to find. This plugin, which does
-know every candidate's own path, replaces that placeholder pick with a **path-proximity
-default** and, when the picked-for-you default might be wrong, is designed to let a human
-confirm or override it via a host app's own UI (see "Status" above) — a step meant to run
-between scanning the folder and actually building the crate, not inside `matchEntryToSong`
+candidate over another and just picks the first it happened to find. `chordpro_crate.js`, which
+does know every candidate's own path, replaces that placeholder pick with a **path-proximity
+default** and, when the picked-for-you default might be wrong, lets a human confirm or
+override it — a step that runs between scanning the folder and actually building the crate,
+not inside `matchEntryToSong`
 itself (which stays a plain, path-blind chordprobook function, unchanged, for every other
 consumer of that library).
 
@@ -1297,31 +1300,31 @@ before this feature existed. This ranking decides two things, always together: w
 and the order `custom:matchCandidates` itself lists them in (§7) — the crate's own data and
 the review UI's own default selection can never disagree about which candidate is "closest".
 
-**The review step (soft gate).** Clicking "Build RO-Crate" (`run()`, `main.js`) — only when
-the chordpro-input plugin is the active input mode; this has nothing to say to xlsx-crate-input
-or any other plugin — first runs a lightweight, chordpro-only pre-scan of the freshly-picked
-folder (reusing the same file-walking/parsing/matching `buildCrateFromChordProFolder` (§4)
+**The review step (soft gate).** Clicking "Make songbook" (§3) first awaits
+`resolveSetlistMatches`, which runs a lightweight pre-scan of the folder
+(`findAmbiguousSetlistMatches`, (reusing the same file-walking/parsing/matching `buildCrateFromChordProFolder` (§4)
 itself uses, factored out so this scan doesn't have to build a full, throwaway crate just to
-find out which entries are ambiguous) *before* `processFolder()`/`runPipeline()` (§3) actually
-builds one. Every entry whose `matchStatus` would come out `"ambiguous"`, across every setlist
+find out which entries are ambiguous) *before* `buildSongbook` actually builds one. Every entry whose `matchStatus` would come out `"ambiguous"`, across every setlist
 file in the folder, is a candidate for review — unless a **persisted choice** already resolves
 it (below), in which case it's silently excluded, no prompt needed. If nothing remains after
 that filter — the overwhelmingly common case, once a collection's ambiguities have been reviewed
-once — the build proceeds immediately with no modal at all, exactly as it does today.
+once — the build proceeds immediately with no modal at all.
 
-Otherwise `#setlistMatchModal` opens automatically, one tile per still-outstanding ambiguous
+Otherwise the review modal opens automatically, one tile per still-outstanding ambiguous
 entry (below), each pre-selected to its own path-proximity default. This is a **soft** gate,
 not a hard one: a single "Build" button (the modal's only real exit, always available, always
 enabled) reads whatever's currently selected — reviewed or still sitting on its default — for
-every tile and proceeds straight into the actual build. A small "×" close icon top-right (same
-convention as the print view's own close button, §13) is exactly equivalent to clicking
+every tile and proceeds straight into the actual build (`resolveSetlistMatches` resolves to
+the `matchOverrides` object `buildSongbook` takes). The modal's "×" close icon (and Escape, or a
+backdrop click — `openModal`'s `onDismiss`) is exactly equivalent to clicking
 "Build" without touching anything — a fast way out for a reader who glances at the tiles, is
 happy with every default, and doesn't want to click a radio button on each one. Neither control
 cancels the build itself — there's no path through this modal that *doesn't* end in a build,
 since the underlying defaults are always a sane, buildable choice on their own; reviewing is
 optional polish on top of them, not a precondition for anything to work at all.
 
-**The tile UI.** Modelled on this app's own setlist-entry rows, not a fresh design — a reader
+**The tile UI.** One card ("tile", `.csm-match-tile`) per entry, modelled on the songbook
+page's own setlist-entry rows, not a fresh design — a reader
 who's already used the setlist view (§6.2, §11) should recognise the shape immediately:
 - **Title**: the entry's own heading text (`entry.rawHeading`) — e.g. "Amazing".
 - **Context** (small, muted, underneath the title): which setlist file this entry came from,
@@ -1338,10 +1341,8 @@ who's already used the setlist view (§6.2, §11) should recognise the shape imm
 later rebuild of the same folder — but there's no separate database to remember it in, and
 there doesn't need to be one: it's simply written into the crate itself, as that entry's own
 `specializationOf`, the same as any other resolved match (§6.1, §7). The next time this
-pre-scan step runs against the same folder, if `ro-crate-metadata.json` (or a newer `.xlsx`
-crate source — the same "whichever was touched last" convention `populateCrateDetailsFromExistingCrate`,
-`main.js`, already uses for prefilling Describe fields) already exists there, it's read once
-up front. For each freshly-found ambiguous entry, a prior entity is looked up by *content*, not
+pre-scan step runs against the same folder, if `ro-crate-metadata.json` already exists there,
+it's read once up front (`extractPersistedSetlistMatches`). For each freshly-found ambiguous entry, a prior entity is looked up by *content*, not
 position — same setlist file, same `name` (raw heading text) — never by comparing
 `#entry-N`-style `@id`s directly, since those are positional and shift the moment an entry is
 added, removed, or reordered anywhere earlier in the same file (the same reasoning already
@@ -1366,7 +1367,8 @@ because the file it pointed to is gone (as opposed to simply never having had on
 line says so by name — e.g. "Discarded a previously-resolved match for 'Amazing' in
 gig.setlist.md — the song it pointed to no longer exists; please re-resolve" — so a reader
 sees *why* an entry they thought they'd already handled is back in the review modal, rather
-than silently wondering.
+than silently wondering. The CLI (§10) applies the same reuse but never prompts: whatever isn't
+resolved by a persisted choice gets the path-proximity default.
 
 **Test coverage.** `rankCandidatesByPath` and the persisted-choice lookup are plain,
 path-in/path-out logic — testable in Node against a dummy folder tree (`test-chordpro-crate.mjs`)
@@ -1387,20 +1389,11 @@ persisted), is baked into the crate and won't come up again on a later rebuild u
 ambiguity genuinely changes (a new candidate appears, or the chosen file disappears). That's
 the right behaviour for *rebuilding*, but it leaves a real gap: a reader who only notices a
 wrong match after actually looking at the built songbook has no way back into that one
-decision. **"Review setlist matches…"** (`#reviewSetlistMatchesBtn`, the app's context bar,
-alongside Show/Edit/"Fix old `{st:}` credits…") is that way back — a second, independent entry
-point into the same tile UI, this time reading whatever's already on disk rather than doing a
-fresh folder scan, and open to *every* entry that was ever ambiguous, not only ones still
-"unresolved".
-
-No other plugin in this app has anything like it — the generic Edit view (`openEdit()`,
-`main.js`) is a schema-agnostic property editor with no idea what any plugin wrote or why, and
-every other plugin-specific control (`collectionLabelsBuilder`, `mergeMappingBuilder`) is a
-pre-build configuration step, not a decision already baked into a finished crate. This is a
-new kind of button for this app: available whenever a crate already exists
-(`refreshModeCards()`'s own `hasJson` check, the same tier as Edit — regardless of whether the
-current browser session ever actually built one), and scoped entirely to what one plugin
-itself wrote.
+decision. **"Review setlist matches…"** (`reviewSetlistMatches`, offered in the result card's
+checks whenever the crate has any entry that was ever ambiguous, §3) is that way back — a
+second, independent entry point into the same tile UI, this time reading whatever's already on
+disk rather than doing a fresh folder scan, and open to *every* entry that was ever ambiguous,
+not only ones still "unresolved".
 
 **Reading and patching, not rebuilding.** `extractReviewableSetlistMatches(crateJson)`
 (`chordpro_crate.js`) walks a crate already read off disk for every entry carrying
@@ -1415,54 +1408,41 @@ build an entry → {setlist, set} lookup — `findAmbiguousSetlistMatches` never
 it gets `entry.setName` for free from `parseSetlist` itself.
 
 Clicking the button reads `ro-crate-metadata.json` fresh, and — if `extractReviewableSetlistMatches`
-returns anything — opens `#setlistMatchModal` again (`openSetlistMatchReviewModal`), the exact
-same tiles as the pre-build review (`renderSetlistMatchTiles`, shared by both), just with two
+returns anything — opens the review modal again (`openReviewModal`), the exact
+same tiles as the pre-build review (`renderTiles`, shared by both), just with two
 differences: each tile's radio starts on `currentId`, not the closest candidate, and whichever
 candidate *is* `recommendedId` gets a small "closest" badge next to it — so a reviewer sees, at
 a glance, both what's actually chosen and what the app would have recommended, which usually
 but not always agree. On "Save", `specializationOf` is patched directly on whichever entries
-actually changed, `ro-crate-metadata.json` is rewritten, and — since `renderSongbookHtml` is a
-pure function of the crate JSON (§10), not something that needs a build-session's own template
-state the way the generic HTML output plugin's own preview does (`saveEdit()`'s own
-`lastHtmlTemplate` gap) — `songbook.html` is regenerated right along with it, all without
-re-walking the source folder or re-running the pipeline at all: the same direct-JSON-patch
-approach the generic Edit view already uses for arbitrary properties, just scoped to one
-plugin's own data.
+actually changed, and `writeOutputs` rewrites the crate and re-renders the songbook (a pure
+function of the crate JSON, §10) — without re-walking the source folder or rebuilding. No song
+file changes, so the app just refreshes the result card.
 
 **A real cancel exists here, unlike the pre-build modal.** The pre-build review is a soft gate
 with no wrong outcome — even every tile left on its own default is still a sane thing to build
 with, so its own × close icon is just a shortcut for "Build" (§16's own "soft gate" section,
 above). This modal is different: opening it and closing it without meaning to shouldn't
 silently rewrite a crate for no reason, so its × (and clicking the backdrop) is a genuine
-cancel — no patch, no rewrite, just a log line saying so. Both modes share one `deps.openModal`
-call and one `renderTiles` (`setlist_match_action.js`); each opener's own `onDismiss` (§3.1's
-own "action" tile design elsewhere in this doc) is what decides which behaviour applies —
-`collectPicks(tilesEl)` for the pre-build soft gate, a plain `null` for this one.
+cancel — no patch, no rewrite, just a log line saying so. Both modes share `openModal` and one
+`renderTiles` (`setlist_match_action.js`); each opener's own `onDismiss` (§3) is what decides
+which behaviour applies — `collectPicks(tilesEl)` for the pre-build soft gate, a plain `null`
+for this one.
 
 ## 17. Guessing a missing key, and reviewing the guess
 
 A song file with no `{key:}` directive at all gets one guessed for it, from chordprobook's own
-`guessKey()` (its own SPEC.md §3.9) reading the same song's `chordsUsed` this plugin already
+`guessKey()` (its own SPEC.md §3.9) reading the same song's `chordsUsed` the build already
 has parsed — no new parsing of its own, no UI required for a build to produce a usable
-`musicalKey` at all. "Review guessed keys…", an action tile of exactly the same
-`kind: "action"`/`deps.openModal` shape as §16's own "Review setlist matches…", is where a
-human confirms, overrides, or corrects one after the fact — reachable any time a crate already
-exists, entirely independent of whether a build happens in the current session, same as §16.
+`musicalKey` at all. "Review keys…" (`reviewKeyGuesses`, `key_review_action.js` — labelled
+"Change keys…" once every key has been confirmed), a check on the result card (§3) of the same
+shape as §16's "Review setlist matches…", is where a human confirms, overrides, or corrects one
+after the fact.
 
-**Why this exists.** Building this surfaced the actual reason a previously-typed root-dataset
-name wasn't sticking across rebuilds of the same folder (a separate, chaos2crate-side bug,
-`DEPLOY-SPEC.md`'s own history): chaos2crate's Describe-step prefill
-(`populateCrateDetailsFromExistingCrate`) has nothing to read unless some plugin taps
-`"folder:picked"` and supplies `ctx.crateJson` — and the one plugin that does, `c2c-plugins`'
-own `xlsx-crate-input`, isn't part of this deployment (`DEPLOY-SPEC.md` §3). Fixed there by
-`existing_crate_prefill.js`, a small additive plugin reading a plain `ro-crate-metadata.json`
-back for exactly that purpose. **This section's own persistence (below) does not reuse that
-plugin or its `ctx.crateJson`** — that `ctx` is a throwaway object built fresh inside
-`populateCrateDetailsFromExistingCrate` itself, on folder pick, long before a profile is even
-chosen; it never reaches `buildCrate(ctx)`'s own, later `ctx`. `chordpro_crate.js` reads
-`ro-crate-metadata.json` a second time, independently, direct from `rootHandle`, for its own
-narrower purpose — this is two call sites solving adjacent problems with the same underlying
-file, not one mechanism accidentally split in two.
+**Where the prior crate comes from.** `buildCrateFromChordProFolder` reads
+`ro-crate-metadata.json` itself, direct from the folder, for this reuse (below). This is
+separate from `readBookSettings` (§3), which reads the same file in the app for the title and
+filename — title/filename persistence lives in the crate itself now, so there is no separate
+prefill mechanism to keep in step.
 
 **Guessing and reuse, in `buildSongEntity`.** For a song whose own `{key:}` is present
 (`parsed.key`), nothing here applies at all — `musicalKey` is set from it directly, exactly as
@@ -1492,9 +1472,9 @@ entity actually carries it (`addUsedPropertyDefinitions`, same discipline as
 |---|---|
 | *(absent)* | The song's own `{key:}`, or no key at all — nothing this feature touched. |
 | `"guessed"` | Assigned by `guessKey()`, not yet looked at by a human. |
-| `"confirmed"` | A human opened the review tile and either accepted, changed, or hand-typed this value — never re-guessed again regardless of what the song's own chords do next. |
+| `"confirmed"` | A human opened the review modal and either accepted, changed, or hand-typed this value — never re-guessed again regardless of what the song's own chords do next. |
 
-**The review tile.** "Review guessed keys…" reads `ro-crate-metadata.json` fresh off disk
+**The review modal.** "Review keys…" reads `ro-crate-metadata.json` fresh off disk
 (same convention as §16's own review action), and lists every canonical `MusicComposition`
 carrying a `custom:keyStatus` at all — `"guessed"` and `"confirmed"` alike, so a prior review
 can always be revisited, exactly as §16's own post-build editor never limits itself to
@@ -1513,9 +1493,8 @@ actually changed, since appearing in this list and being saved *is* the act of a
 at it (unlike §16's own change-only patch, where an unreviewed default is still just as
 provisional after Save as before it). A field cleared to empty removes `musicalKey`/
 `custom:keyStatus` from that entity entirely, back to "no key assigned" — the one way to undo
-a guess rather than replace it with another one. `ro-crate-metadata.json` and `songbook.html`
-are rewritten directly from the patched JSON, same as §16, with no folder re-scan or pipeline
-re-run.
+a guess rather than replace it with another one. `writeOutputs` rewrites the crate and the
+songbook directly from the patched JSON, same as §16, with no folder re-scan.
 
 **Writing the key back into the file itself.** A checkbox in the same modal, off by default:
 "Also add `{key:}` to the song files". When checked, every song actually saved with a
@@ -1532,11 +1511,14 @@ folder — a sibling convention to, but a separate folder from, §15's own
 listing. Once written, the file has its own real `{key:}`: the next build reads it as
 authored, same as any other song that always had one — `custom:keyStatus` never appears for it
 again, and neither this feature nor the reuse rule above has anything further to do with it.
+Because files were rewritten, `reviewKeyGuesses` resolves to `{ changed, wroteSongFiles:
+true }` and the app runs "Make songbook" again straight away (§3), so the crate's copy of each
+song's text picks up the new line.
 
 **Deferred (not built):** a pre-build soft gate analogous to §16's own (guessed keys are never
 allowed to interrupt a build the way an unresolved setlist match can be made to); surfacing
 chordprobook's own richer per-candidate breakdown (`chordsInKey`/`chordsOutOfKey`/
-`ignoredChords`, its own SPEC.md §3.9) anywhere in the review tile itself, which currently
+`ignoredChords`, its own SPEC.md §3.9) anywhere in the review modal itself, which currently
 shows only each candidate's bare key; any confidence threshold below which a guess is withheld
 rather than always assigning the top-scoring candidate regardless of how weak that score is.
 
@@ -1548,14 +1530,14 @@ song's sounding key is the charted key transposed up by the capo. chordpro.org's
 disagrees: there, `{key:}` is the key the song sounds in, capo included. A song built the
 chordpro.org way looks, from here, exactly like a chart in C shapes that someone mistyped as
 "D" — the two are genuinely indistinguishable from the chords alone; only the presence of both
-an authored `{key:}` *and* a `{capo:}` at all makes this worth checking. "Normalize capos and
-keys…" is a second action tile, of the same `kind: "action"`/`deps.openModal` shape as §16/§17's
-own review tiles, deliberately separate from "Review guessed keys…" rather than a checkbox on
-that tile — the two features answer different questions (§17: "what key is this, if none was
+an authored `{key:}` *and* a `{capo:}` at all makes this worth checking. "Review capos and
+keys…" (`normalizeCapoKeys`, `normalize_capo_key_action.js`) is a separate check on the result
+card (§3), of the same shape as §16/§17's, deliberately separate from "Review keys…" rather
+than a checkbox in that modal — the two features answer different questions (§17: "what key is this, if none was
 given at all?" vs. this one: "does the key that *was* given actually mean what this tool expects
 it to mean?") over an almost entirely disjoint set of songs (only ever those with both a
 `{key:}` and a `{capo:}` already), and folding a whole second checkbox-per-song review flow onto
-the far more common single-guess tile would make that one harder to read for no shared benefit.
+the far more common key review would make that one harder to read for no shared benefit.
 
 **Detection, `detectCapoKeyMismatch(entity)` in `chordpro_crate.js`.** Only ever considers a
 song entity that already has both a `custom:capo` and a `musicalKey` — no capo, nothing to
@@ -1573,7 +1555,7 @@ already reaches from the (lower) charted key. `extractCapoKeyMismatches(crateJso
 to every canonical `MusicComposition` in a crate already on disk, the same read-straight-off-disk
 convention as `extractReviewableSongKeys`.
 
-**The tile.** For each detected mismatch: the song's title, its own chords (same reasoning as
+**The modal.** One tile per detected mismatch: the song's title, its own chords (same reasoning as
 §17's own chord display — evidence to judge the suggestion against, not a bare claim to take on
 faith), and a plain summary of the fix (`key: D, capo: 2` → `key: C, transpose: +2, capo: 2
 (unchanged)`) next to a checkbox, **checked by default** — every detection this algorithm
@@ -1606,11 +1588,15 @@ authored `{key:}` over anything persisted from a prior crate — the whole reuse
 relies on only ever activates for a song with *no* `{key:}` at all. A song fixed here in the
 crate alone, with the write-back checkbox left unticked, still has its old, "wrong" `{key:}` on
 disk; the very next rebuild reads that file fresh and reintroduces the exact same mismatch,
-which the next run of this tile will simply flag and offer to fix again. This is a known,
+which the next run of this check will simply flag and offer to fix again. This is a known,
 accepted limitation rather than a bug to engineer around: the file itself, not the crate, is
 this tool's actual source of truth for an authored key (§5), and the write-back checkbox is the
 one mechanism that changes what the file itself says — same as §17's own `{key:}` write-back
-being what actually stops a guess from being re-derived.
+being what actually stops a guess from being re-derived. The app makes this matter more than it
+used to: it rebuilds automatically after any tool that rewrites song files — a `{st:}` fix
+(§15), or a key write-back (§17) — as well as on every "Make songbook", so a crate-only fix
+made here is undone by the very next such rebuild, often within the same session; tick the
+write-back checkbox unless the fix is only wanted until then.
 
 **Deferred (not built):** any equivalent of §17's own `custom:keyStatus` tracking for this
 feature — a fixed song looks, to a rebuild, identical to one that was always charted correctly,

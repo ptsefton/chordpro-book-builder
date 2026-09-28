@@ -1,25 +1,15 @@
 // Resolving ambiguous setlist matches (SPEC.md §16): a pre-build soft gate
-// (this plugin's own "config:prepare" hook tap — hooks.js, fired by every
-// build regardless of input mode; a no-op unless ctx.options.inputMode is
-// this plugin's own "chordpro") plus "Review setlist matches…", an
-// optionSchema "action" tile (main.js's renderOptionGroupTiles, `kind:
-// "action"`) for revisiting a match after the fact. chaos2crate's own
-// index.html/main.js know neither exists — deps.openModal is the only host
-// capability either needs beyond the plain I/O every plugin already gets.
+// (resolveSetlistMatches, which the app awaits before every build) plus
+// reviewSetlistMatches, the "Review setlist matches…" button for revisiting
+// a match after the fact. The app hands in openModal (app/modal.js); this
+// file builds the modal's body itself.
 
-let verifyPermission, readJsonFromFolder, writeFile, openModal;
+import { verifyPermission, readJsonFromFolder } from "./fs_helpers.js";
+import { extractReviewableSetlistMatches, findAmbiguousSetlistMatches, extractPersistedSetlistMatches } from "./chordpro_crate.js";
+import { CRATE_FILE, writeOutputs } from "./songbook_build.js";
 
-export function createPlugin(deps) {
-  ({ verifyPermission, readJsonFromFolder, writeFile, openModal } = deps);
-  return plugin;
-}
-
-const CRATE_FILE = "ro-crate-metadata.json";
-
-// This feature's own tile styling — injected once into document.head
-// rather than living in chaos2crate's index.html, so the host's own CSS
-// never has to know these class names exist (deps.openModal's own header
-// comment on the "no host markup" discipline this follows).
+// This feature's own tile styling — injected once into document.head, so
+// app/app.css never has to know these class names exist.
 const STYLE_ELEMENT_ID = "chordpro-setlist-match-styles";
 function ensureStylesInjected() {
   if (document.getElementById(STYLE_ELEMENT_ID)) return;
@@ -50,8 +40,8 @@ function ensureStylesInjected() {
   document.head.appendChild(style);
 }
 
-// Shared by the pre-build soft gate (handleConfigPrepare, below) and the
-// post-build review (runReviewSetlistMatches) — the tiles themselves are
+// Shared by the pre-build soft gate (resolveSetlistMatches, below) and the
+// post-build review (reviewSetlistMatches) — the tiles themselves are
 // identical either way; only which candidate starts selected, and whether
 // a "closest" badge is worth showing at all, differ.
 function renderTiles(body, items, { showRecommended = false } = {}) {
@@ -119,7 +109,7 @@ function collectPicks(tilesEl) {
 // sitting on its own default is always fine to build with, so there's no
 // real cancel outcome here; the × icon and a backdrop click both just apply
 // whatever's currently selected, via onDismiss).
-function openPreBuildModal(items) {
+function openPreBuildModal(openModal, items) {
   ensureStylesInjected();
   let tilesEl;
   return openModal({
@@ -161,7 +151,7 @@ function openPreBuildModal(items) {
 // marked with a badge instead (showRecommended) so a reviewer can tell at a
 // glance whether the two agree. Resolves to null if dismissed without
 // clicking "Save" — a genuine cancel, unlike the pre-build modal above.
-function openReviewModal(items) {
+function openReviewModal(openModal, items) {
   ensureStylesInjected();
   return openModal({
     title: "Review setlist matches",
@@ -197,13 +187,14 @@ function openReviewModal(items) {
   });
 }
 
-// The "Review setlist matches…" tile's own handler — reads whatever's on
-// disk right now, lets a human revisit any entry that was *ever* ambiguous
+// The "Review setlist matches…" button — reads whatever's on disk right
+// now, lets a human revisit any entry that was *ever* ambiguous
 // (extractReviewableSetlistMatches, unlike findAmbiguousSetlistMatches,
 // doesn't filter by "already resolved" at all), and patches + rewrites
-// ro-crate-metadata.json and songbook.html directly for whatever actually
-// changed — no folder re-scan, no pipeline re-run.
-async function runReviewSetlistMatches({ dirHandle, log }) {
+// ro-crate-metadata.json and the songbook directly for whatever actually
+// changed — no folder re-scan, no rebuild. Resolves to true if anything
+// was rewritten.
+export async function reviewSetlistMatches({ dirHandle, log, openModal }) {
   if (!(await verifyPermission(dirHandle, true))) {
     log("Permission to read/write the folder was denied.", "err");
     return;
@@ -221,14 +212,13 @@ async function runReviewSetlistMatches({ dirHandle, log }) {
     return;
   }
 
-  const { extractReviewableSetlistMatches } = await import("./chordpro_crate.js");
   const reviewable = extractReviewableSetlistMatches(crateJson);
   if (!reviewable.length) {
     log("No setlist matches to review — no setlist entry in this crate was ever ambiguous.", "info");
     return;
   }
 
-  const picks = await openReviewModal(reviewable);
+  const picks = await openReviewModal(openModal, reviewable);
   if (!picks) {
     log("Setlist matches: cancelled, nothing changed.", "info");
     return;
@@ -251,45 +241,35 @@ async function runReviewSetlistMatches({ dirHandle, log }) {
   }
 
   try {
-    await writeFile(dirHandle, CRATE_FILE, JSON.stringify(crateJson, null, 2));
-    const { renderSongbookHtml, OUTPUT_FILE } = await import("./songbook_html.js");
-    await writeFile(dirHandle, OUTPUT_FILE, renderSongbookHtml(crateJson));
-    log(
-      `Setlist matches: updated ${changedCount} entr${changedCount === 1 ? "y" : "ies"}. ` +
-        `Re-wrote ${CRATE_FILE} and ${OUTPUT_FILE}.`,
-      "ok",
-    );
+    await writeOutputs(dirHandle, crateJson, log);
+    log(`Setlist matches: updated ${changedCount} entr${changedCount === 1 ? "y" : "ies"}.`, "ok");
+    return true;
   } catch (e) {
     log("Could not save setlist match changes: " + (e && e.message ? e.message : e), "err");
+    return false;
   }
 }
 
-// Runs before the real build, tapping the generic "config:prepare" hook
-// every build fires — a no-op for any input mode other than this plugin's
-// own "chordpro" (chaos2crate's pipeline.js has no idea this check even
-// happens). Reads whatever crate already exists for choices a human has
-// already made on an earlier build, reusing anything still valid; opens the
-// review modal only for whatever's left. Always resolves
-// ctx.options.setlistMatchOverrides to a usable object — SPEC.md §16's own
-// soft gate, never a hard block on the build itself.
-async function handleConfigPrepare(ctx) {
-  if (ctx.options.inputMode !== "chordpro") return;
-
-  const { findAmbiguousSetlistMatches, extractPersistedSetlistMatches } = await import("./chordpro_crate.js");
+// Runs before every build. Reads whatever crate already exists for choices
+// a human has already made on an earlier build, reusing anything still
+// valid; opens the review modal only for whatever's left. Always resolves
+// to a usable overrides object (matchKey -> song @id) for
+// buildSongbook's matchOverrides — SPEC.md §16's own soft gate, never a
+// hard block on the build itself.
+export async function resolveSetlistMatches(dirHandle, { log, openModal }) {
 
   let scan;
   try {
-    scan = await findAmbiguousSetlistMatches(ctx.dirHandle);
+    scan = await findAmbiguousSetlistMatches(dirHandle);
   } catch (e) {
-    ctx.log("Could not check setlist matches: " + (e && e.message ? e.message : e), "err");
-    ctx.options.setlistMatchOverrides = {};
-    return;
+    log("Could not check setlist matches: " + (e && e.message ? e.message : e), "err");
+    return {};
   }
-  if (!scan.entries.length) { ctx.options.setlistMatchOverrides = {}; return; }
+  if (!scan.entries.length) return {};
 
   let priorCrateJson = null;
   try {
-    priorCrateJson = await readJsonFromFolder(ctx.dirHandle, CRATE_FILE);
+    priorCrateJson = await readJsonFromFolder(dirHandle, CRATE_FILE);
   } catch {
     priorCrateJson = null;
   }
@@ -309,7 +289,7 @@ async function handleConfigPrepare(ctx) {
       continue;
     }
     if (persistedId && !songIds.has(persistedId)) {
-      ctx.log(
+      log(
         `Discarded a previously-resolved match for "${item.rawHeading}" in ${item.setlistPath} — ` +
           "the song it pointed to no longer exists; please re-resolve.",
         "muted",
@@ -318,26 +298,12 @@ async function handleConfigPrepare(ctx) {
     needsReview.push(item);
   }
 
-  if (!needsReview.length) { ctx.options.setlistMatchOverrides = overrides; return; }
+  if (!needsReview.length) return overrides;
 
-  ctx.log(
+  log(
     `${needsReview.length} setlist entr${needsReview.length === 1 ? "y needs" : "ies need"} a match reviewed before building.`,
     "info",
   );
-  const picks = await openPreBuildModal(needsReview);
-  ctx.options.setlistMatchOverrides = { ...overrides, ...picks };
+  const picks = await openPreBuildModal(openModal, needsReview);
+  return { ...overrides, ...picks };
 }
-
-const plugin = {
-  name: "setlist-match-review",
-  hooks: {
-    "config:prepare": (ctx) => handleConfigPrepare(ctx),
-  },
-  optionSchema: {
-    key: "reviewSetlistMatches",
-    kind: "action",
-    label: "Review setlist matches…",
-    hint: "Revisit any setlist entry that ever matched more than one song — logs \"nothing to review\" if this folder's crate has none.",
-    run: runReviewSetlistMatches,
-  },
-};

@@ -3,11 +3,9 @@
 // back to around 2015 often use {st: ...} (subtitle) as a stand-in for
 // {artist: ...} — and sometimes for {composer: ...} instead — a habit that
 // predates {artist}/{subtitle} being distinct directives at all. This is a
-// one-off, human-supervised migration, not something the chordpro-input
-// plugin itself does automatically: that plugin never writes back to the
-// source folder at all (SPEC.md §2, "out of scope, permanent"), and this
-// script deliberately lives outside it, run by hand, once, against a real
-// chart collection.
+// one-off, human-supervised migration, run by hand against a real chart
+// collection — the command-line twin of the app's "Fix credits…" check
+// (SPEC.md §15). A build itself never rewrites song files.
 //
 // What it does, in order:
 //   1. Finds every {st: ...} occurrence under a folder (recursively).

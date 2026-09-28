@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ChordPro Songbook Builder</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='13' font-size='13'%3E%F0%9F%8E%B5%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="./app.css">
+</head>
+<body>
+
+<header class="site-header">
+  <h1>ChordPro Songbook Builder</h1>
+  <nav>
+    <a href="../">About</a>
+    <a href="../chordpro-format.html">ChordPro format</a>
+    <a href="../demo/songbook.html">Sample songbook</a>
+  </nav>
+</header>
+
+<main>
+  <section id="unsupported" class="card warning hidden">
+    <h2>This browser can't open folders</h2>
+    <p>The songbook builder reads and writes files in a folder on your computer, which needs the
+      File System Access API. Please use a recent desktop version of Chrome or Edge.</p>
+  </section>
+
+  <section id="step-folder" class="card">
+    <h2><span class="step-number">1</span> Choose your song folder</h2>
+    <p class="hint">A folder of ChordPro songs (<code>.cho</code>, <code>.pro</code>, <code>.cho.txt</code>)
+      and, optionally, setlists (<code>.setlist.md</code>). Subfolders are included. The songbook is saved
+      into the same folder.</p>
+    <div class="actions start">
+      <button id="pick-folder" type="button" class="primary">Choose folder…</button>
+      <button id="reopen-folder" type="button" class="secondary hidden"></button>
+    </div>
+    <p id="folder-summary" class="summary hidden"></p>
+  </section>
+
+  <section id="step-book" class="card hidden">
+    <h2><span class="step-number">2</span> Name your songbook</h2>
+    <form id="book-form">
+      <label class="field">
+        <span>Title</span>
+        <input id="book-title" type="text" required autocomplete="off">
+      </label>
+      <label class="field">
+        <span>File name</span>
+        <input id="book-file" type="text" required autocomplete="off" spellcheck="false">
+        <small class="hint">Saved in the folder you chose, next to your songs.</small>
+      </label>
+      <p id="book-error" class="error hidden"></p>
+      <div class="actions start">
+        <button id="make-songbook" type="submit" class="primary">Make songbook</button>
+      </div>
+    </form>
+  </section>
+
+  <section id="step-result" class="card hidden">
+    <h2><span class="step-number">3</span> Your songbook</h2>
+    <p id="result-summary" class="summary"></p>
+    <div class="actions start">
+      <button id="open-songbook" type="button" class="primary">Open songbook</button>
+    </div>
+    <h3 id="checks-heading" class="hidden">Worth a look</h3>
+    <ul id="checks" class="checks"></ul>
+  </section>
+
+  <details id="log-details" class="card log">
+    <summary>Details</summary>
+    <ol id="log"></ol>
+  </details>
+</main>
+
+<script type="module" src="./main.js"></script>
+</body>
+</html>

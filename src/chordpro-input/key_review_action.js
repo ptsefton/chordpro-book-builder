@@ -1,29 +1,18 @@
-// "Review guessed keys…" (SPEC.md §17) — an optionSchema "action" tile
-// (main.js's renderOptionGroupTiles, kind: "action"), same shape as
-// setlist_match_action.js's own post-build review tile. Runs independently
-// of the crate-building pipeline entirely — clicking the tile scans the
-// current folder's crate immediately, no "Build" required first or after.
-//
-// deps.openModal is the only host capability this needs beyond the plain
-// I/O every plugin already gets, same as every other action tile in this
-// repo — chaos2crate's own index.html/main.js know nothing about what a
-// "key" review even is.
+// "Review guessed keys…" (SPEC.md §17) — runs against the crate already on
+// disk, independently of a build: lists every song whose key was guessed
+// (or confirmed in an earlier review), lets a human confirm or change each,
+// and rewrites the crate and songbook. Optionally writes {key:} back into
+// the song files themselves, after backing them up.
 
 import JSZip from "jszip";
+import { verifyPermission, readJsonFromFolder, getFileHandleAtPath, writeFileAtPath } from "./fs_helpers.js";
+import { insertKeyDirective, extractReviewableSongKeys } from "./chordpro_crate.js";
+import { CRATE_FILE, writeOutputs } from "./songbook_build.js";
 
-let verifyPermission, readJsonFromFolder, writeFile, openModal;
-
-export function createPlugin(deps) {
-  ({ verifyPermission, readJsonFromFolder, writeFile, openModal } = deps);
-  return plugin;
-}
-
-const CRATE_FILE = "ro-crate-metadata.json";
 const BACKUP_DIR = ".chordpro-key-backups";
 
 // This feature's own tile styling — injected once into document.head, same
-// convention setlist_match_action.js's own ensureStylesInjected follows
-// (deps.openModal's "no host markup" discipline).
+// convention setlist_match_action.js's own ensureStylesInjected follows.
 const STYLE_ELEMENT_ID = "chordpro-key-review-styles";
 function ensureStylesInjected() {
   if (document.getElementById(STYLE_ELEMENT_ID)) return;
@@ -103,7 +92,7 @@ function collectValues(inputs) {
   return values;
 }
 
-function openReviewModal(items) {
+function openReviewModal(openModal, items) {
   ensureStylesInjected();
   let inputs;
   let writeBackCheckbox;
@@ -148,30 +137,6 @@ function openReviewModal(items) {
   });
 }
 
-// A local copy of the same relative-path file walk fix_st_directive_ui.js
-// already has — not an import, same reasoning as that file's own header
-// comment on its writeFileAtPath: this repo has no import dependency
-// between its own sibling action plugins, any more than it does on
-// chaos2crate's source.
-async function getFileHandleAtPath(dirHandle, relativePath) {
-  const parts = relativePath.split("/").filter(Boolean);
-  const filename = parts.pop();
-  let dir = dirHandle;
-  for (const part of parts) dir = await dir.getDirectoryHandle(part, { create: false });
-  return dir.getFileHandle(filename, { create: false });
-}
-
-async function writeFileAtPath(dirHandle, relativePath, contents) {
-  const parts = relativePath.split("/").filter(Boolean);
-  const filename = parts.pop();
-  let dir = dirHandle;
-  for (const part of parts) dir = await dir.getDirectoryHandle(part, { create: true });
-  const fh = await dir.getFileHandle(filename, { create: true });
-  const w = await fh.createWritable();
-  await w.write(contents);
-  await w.close();
-}
-
 // Backs up, then rewrites, every file in `entries` ({id, key}) — id is the
 // song's own @id (its relative path), key the confirmed value to insert.
 // Re-reads each file fresh off disk rather than trusting the crate's own
@@ -179,7 +144,6 @@ async function writeFileAtPath(dirHandle, relativePath, contents) {
 // §15). A separate backup folder from that tool's own (SPEC.md §17) so the
 // two tools' backups are never mixed together in one listing.
 async function writeKeysBackToFiles(dirHandle, entries) {
-  const { insertKeyDirective } = await import("./chordpro_crate.js");
   const zip = new JSZip();
   let filesChanged = 0;
   for (const { id, key } of entries) {
@@ -198,7 +162,9 @@ async function writeKeysBackToFiles(dirHandle, entries) {
   return { filesChanged, backupPath };
 }
 
-async function runReviewKeyGuesses({ dirHandle, log }) {
+// Resolves to { changed, wroteSongFiles } — the app rebuilds after a
+// write-back so the crate's own copy of each song's text catches up.
+export async function reviewKeyGuesses({ dirHandle, log, openModal }) {
   if (!(await verifyPermission(dirHandle, true))) {
     log("Permission to read/write the folder was denied.", "err");
     return;
@@ -216,14 +182,13 @@ async function runReviewKeyGuesses({ dirHandle, log }) {
     return;
   }
 
-  const { extractReviewableSongKeys } = await import("./chordpro_crate.js");
   const reviewable = extractReviewableSongKeys(crateJson);
   if (!reviewable.length) {
     log("No guessed keys to review — no song in this crate has a guessed or confirmed key.", "info");
     return;
   }
 
-  const picks = await openReviewModal(reviewable);
+  const picks = await openReviewModal(openModal, reviewable);
   if (!picks) {
     log("Key review: cancelled, nothing changed.", "info");
     return;
@@ -254,28 +219,18 @@ async function runReviewKeyGuesses({ dirHandle, log }) {
   }
 
   try {
-    await writeFile(dirHandle, CRATE_FILE, JSON.stringify(crateJson, null, 2));
-    const { renderSongbookHtml, OUTPUT_FILE } = await import("./songbook_html.js");
-    await writeFile(dirHandle, OUTPUT_FILE, renderSongbookHtml(crateJson));
-    let message = `Key review: confirmed ${changedCount} song${changedCount === 1 ? "" : "s"}. ` +
-      `Re-wrote ${CRATE_FILE} and ${OUTPUT_FILE}.`;
+    await writeOutputs(dirHandle, crateJson, log);
+    let message = `Key review: updated ${changedCount} song${changedCount === 1 ? "" : "s"}.`;
+    let wroteSongFiles = false;
     if (picks.writeBack && toWriteBack.length) {
       const { filesChanged, backupPath } = await writeKeysBackToFiles(dirHandle, toWriteBack);
       message += ` Wrote {key:} into ${filesChanged} file(s) (backup: ${backupPath}).`;
+      wroteSongFiles = filesChanged > 0;
     }
     log(message, "ok");
+    return { changed: true, wroteSongFiles };
   } catch (e) {
     log("Could not save key review changes: " + (e && e.message ? e.message : e), "err");
+    return { changed: false, wroteSongFiles: false };
   }
 }
-
-const plugin = {
-  name: "key-guess-review",
-  optionSchema: {
-    key: "reviewKeyGuesses",
-    kind: "action",
-    label: "Review guessed keys…",
-    hint: "Revisit any song with a guessed key — logs \"nothing to review\" if this folder's crate has none.",
-    run: runReviewKeyGuesses,
-  },
-};

@@ -1,27 +1,9 @@
 {
-  "_pendingUpstream": "wrapper.ref tracks Language-Research-Technology/chaos2crate#69 (fixes #68) — the INPUT_PLUGINS support this build depends on. Once merged, point wrapper.ref back at main (or a tag) and delete this note.",
-  "wrapper": { "repo": "Language-Research-Technology/chaos2crate", "ref": "68-exact-plugin-configuration-no-defaults" },
-  "plugins": { "repo": "Language-Research-Technology/c2c-plugins", "ref": "fd2ed669029d708ea1f228a531b04b33d3f26b81" },
-
-  "plugin": "self",
-
-  "inputPlugins": "chordpro=c2c-chordpro-plugin",
-  "additivePlugins": [
-    "ro-crate-json-output",
-    "songbook=c2c-chordpro-plugin/src/chordpro-input/songbook_html.js",
-    "fixSt=c2c-chordpro-plugin/src/chordpro-input/fix_st_directive_action.js",
-    "setlistMatch=c2c-chordpro-plugin/src/chordpro-input/setlist_match_action.js",
-    "cratePrefill=c2c-chordpro-plugin/src/chordpro-input/existing_crate_prefill.js",
-    "keyReview=c2c-chordpro-plugin/src/chordpro-input/key_review_action.js",
-    "normalizeCapoKey=c2c-chordpro-plugin/src/chordpro-input/normalize_capo_key_action.js"
-  ],
-
   "demo": [
-    { "source": "src/chordpro-input/samples", "path": "demo", "zip": "samples.zip" }
+    { "source": "src/chordpro-input/samples", "path": "demo", "title": "Sample songbook", "zip": "samples.zip" }
   ],
 
   "appPath": "build",
-  "forceProfile": "chordpro-songs",
 
   "landing": { "source": "index.md", "path": "index.html" },
   "pages": [

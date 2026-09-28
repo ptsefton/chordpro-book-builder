@@ -1,122 +1,84 @@
-# c2c-chordpro-plugin
+# ChordPro Songbook Builder
 
-An input-mode plugin for [chaos2crate](https://github.com/Language-Research-Technology/chaos2crate):
-turns a folder of [ChordPro](https://www.chordpro.org/) song charts and Markdown setlists into
-an RO-Crate, then renders that crate into `songbook.html` — a standalone, interactive,
-printable songbook page (song list, transposition, chord diagrams, setlists, print mode) that
-needs no server and no build step to open.
+A browser app that turns a folder of [ChordPro](https://www.chordpro.org/) song charts and
+Markdown setlists into `songbook.html`: a standalone, interactive, printable songbook page (song
+list, transposition, chord diagrams, setlists, print modes) that needs no server to open.
 
-See [`src/chordpro-input/SPEC.md`](src/chordpro-input/SPEC.md) for the full design.
+**Use it:** <https://ptsefton.com/chordpro-book-builder/build/>. Needs a desktop Chrome or Edge,
+because it reads and writes a folder on your computer (the File System Access API).
 
-This is a standalone repo, not part of [`c2c-plugins`](https://github.com/Language-Research-Technology/c2c-plugins)
-(chaos2crate's own bundled plugins) — extracted from `resources2crate`, the app chaos2crate
-itself succeeded, when that project's plugins were split out of the core app. Kept separate
-from `c2c-plugins` for the same reason [`chordprobook`](https://github.com/ptsefton/chordprobook-js)
-is its own repo rather than living inside `resources2crate`/`chaos2crate`: this plugin is
-specific to one person's own use case (ChordPro charts and setlists), not something every
-chaos2crate deployment needs.
+1. **Choose your song folder.** Songs are `.cho`, `.pro` or `.cho.txt`; setlists are
+   `.setlist.md`; subfolders are included.
+2. **Name your songbook:** a title, and the file name to save it as. Both are remembered for next
+   time.
+3. **Make songbook.** If a setlist entry matches more than one song, you're asked which one you
+   meant first. Afterwards the app lists anything worth checking: keys it had to guess, songs
+   whose key looks like it was written "as heard" with a capo, setlist entries that matched
+   nothing, and old `{st:}` credits. Each comes with a button to review or fix it.
 
-This package has **no runtime dependency on chaos2crate or `c2c-plugins`**. Every plugin
-object here is a factory, `createPlugin(deps)`, called with whatever functions from the host
-app's own core it needs — the same contract every `c2c-plugins` plugin follows (see that
-repo's own README for the contract in full, including why hook names are literal strings like
-`"output:write"` rather than an imported constant).
+Alongside the songbook, each build writes an [RO-Crate](https://www.researchobject.org/ro-crate/)
+(`ro-crate-metadata.json` plus a `ro-crate-preview.html` that redirects to the songbook). The
+crate is where the songbook's data comes from, and where your choices (title, file name, setlist
+matches, confirmed keys) are kept between visits.
 
-## Consuming this package
+See [`src/chordpro-input/SPEC.md`](src/chordpro-input/SPEC.md) for the full design and
+[`docs/chordpro-format.md`](docs/chordpro-format.md) for the ChordPro dialect it reads.
 
-Check it out as a sibling to `chaos2crate` and `c2c-plugins`. `chordprobook` is a `github:`
-dependency of this repo (see "Setup for local development" below for working against a local
-checkout of it instead), so it does not need to be a sibling too:
+## Layout
 
 ```
-some-folder/
-  chaos2crate/
-  c2c-plugins/
-  c2c-chordpro-plugin/   (this repo)
+app/                    the web app: index.html, main.js, app.css, modal.js, folder_store.js
+src/chordpro-input/     everything that builds or patches a songbook (no DOM outside the *_action.js modals)
+  chordpro_crate.js       folder walk, song/setlist parsing into RO-Crate entities, matching, key checks
+  songbook_build.js       build orchestration: crate + songbook + preview, title/filename handling
+  songbook_html.js        renders the songbook page from a crate
+  *_action.js             the review tools (setlist matches, keys, capo/key, {st:} credits)
+  build-songbook.mjs      the same build as a CLI
+scripts/                build-site.mjs (GitHub Pages), the chordprobook bundle generator, the {st:} CLI
 ```
 
-Add it as a `file:` dependency in chaos2crate's own `package.json`:
+[`chordprobook`](https://github.com/ptsefton/chordprobook-js), the ChordPro parsing and rendering
+library, isn't on npm yet. It's a `github:` dependency, pinned to a commit by `package-lock.json`.
 
-```json
-"c2c-chordpro-plugin": "file:../c2c-chordpro-plugin"
-```
-
-then run `npm install` in both `c2c-chordpro-plugin` (this repo — it has its own
-`node_modules`, needed because Node resolves a `file:`-linked package's own dependencies from
-its real path, not the consuming app's `node_modules`) and `chaos2crate` itself.
-
-Select it as the active input mode via chaos2crate's own `INPUT_PLUGINS` env var (see
-`chaos2crate/scripts/select-plugins.mjs`'s own header comment for the full env var syntax):
-
-```
-INPUT_PLUGINS=chordpro=c2c-chordpro-plugin npm run dev
-```
-
-To also drop every other bundled plugin except the minimum needed to write the crate itself,
-combine it with `PLUGINS` — `ro-crate-json-output` (from `c2c-plugins`) plus this repo's own
-`songbook_html.js`, which writes `songbook.html` and the `ro-crate-preview.html` redirect to
-it (see `SPEC.md` §10):
-
-```
-PLUGINS=ro-crate-json-output,songbook=c2c-chordpro-plugin/src/chordpro-input/songbook_html.js \
-INPUT_PLUGINS=chordpro=c2c-chordpro-plugin \
-npm run dev
-```
-
-Both `index.js` (the input-mode plugin) and `songbook_html.js` (the additive output plugin)
-must be selected for a chordpro build to actually produce a songbook — `index.js` alone only
-builds the RO-Crate, with no songbook page written.
-
-## Setup for local development
+## Development
 
 ```
 npm install
-npm run generate:chordprobook-bundle   # regenerate after changing chordprobook itself
+npm run dev      # the app at http://localhost:5173/
 npm test
 ```
 
-To work against a local checkout of `chordprobook` rather than the pinned `github:` dependency:
+To work against a local checkout of `chordprobook` instead of the pinned commit:
 
 ```
-npm install ../chordprobook --no-save    # or: npm link ../chordprobook
+npm install ../chordprobook-js --no-save
 npm run generate:chordprobook-bundle
 ```
 
-`--no-save` keeps this repo's `package.json`/`package-lock.json` on the pinned commit; `npm ci`
-restores it. See DEPLOY-SPEC.md §7 for why the bundle has to be regenerated after switching.
+`--no-save` keeps `package.json`/`package-lock.json` on the pinned commit, and `npm ci` puts it
+back. The songbook page embeds a copy of chordprobook
+(`src/chordpro-input/generated/chordprobook_browser_bundle.js`, committed), so regenerate it after
+any chordprobook change. `build:site --strict` fails if the committed copy is stale.
 
-## Publishing to GitHub Pages
+## Command line
 
-`npm run build:site` builds this repo into a publishable site, with no sibling checkouts
-required:
-
-- `/` — a landing page (rendered from [`index.md`](index.md))
-- `/build/` — a chordpro-only chaos2crate app
-- `/demo/` — a sample songbook rendered from `src/chordpro-input/samples/`, plus
-  `/demo/samples.zip` — the same folder's source charts/setlist, downloadable
-- `/chordpro-format.html` — [the ChordPro dialect this uses](docs/chordpro-format.md)
-
-See [`DEPLOY-SPEC.md`](DEPLOY-SPEC.md) for the full design; `.github/workflows/pages.yml` runs
-it on every push to `main`.
+The same build, with no browser:
 
 ```
-npm run build:site      # writes ./site
-npm run preview:site    # serves ./site at http://localhost:4173
+npm run build:songbook -- <folder> [--title "My Songbook"] [--file my-songbook.html]
 ```
 
-## Standalone CLI
+Title and file name default to whatever the folder's last build recorded. Ambiguous setlist
+matches reuse any choice made earlier in the app; otherwise the song closest to the setlist in
+the folder tree is used.
 
-`build-songbook.mjs` builds a songbook from a real folder on disk with no browser, no File
-System Access API, and no host app involved at all — useful for quickly checking a chart
-collection without running chaos2crate itself:
+`npm run fix:st-directive -- <folder>` is the command-line version of the `{st:}` credit fixer
+(SPEC.md §15).
 
-```
-npm run build:songbook -- <folder>
-```
+## Publishing
 
-## The `{st:}` cleanup tool
-
-A one-off migration for chart collections that predate this project's own `{artist}`/
-`{subtitle}` split — see `SPEC.md` §15. The Node CLI (`npm run fix:st-directive -- <folder>`)
-is ready to use standalone; the browser-UI half (`fix_st_directive_ui.js`) is implemented but
-not yet wired into any host app's own UI.
+`npm run build:site` builds `site/`: a landing page from [`index.md`](index.md), the app at
+`/build/`, a demo songbook at `/demo/` (from `src/chordpro-input/samples/`, plus a zip of its
+source files), and [`docs/chordpro-format.md`](docs/chordpro-format.md). `npm run preview:site`
+serves the result locally. `.github/workflows/pages.yml` deploys it to GitHub Pages. See
+[`DEPLOY-SPEC.md`](DEPLOY-SPEC.md).

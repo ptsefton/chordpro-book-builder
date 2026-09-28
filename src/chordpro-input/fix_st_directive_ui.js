@@ -4,35 +4,16 @@
 // st_directive.js so this file and the CLI script (scripts/fix-st-directive.mjs)
 // never duplicate them. See SPEC.md's "Metadata entry and cleanup" section.
 //
-// This is a standalone, main.js-wired action, not a HOOKS-based plugin tap
-// (hooks.js) — it runs independently of runPipeline()/processFolder()
-// entirely, against whatever folder is already picked in the app.
+// Runs independently of a build, against whatever folder is already picked
+// in the app (fix_st_directive_action.js is the modal around it).
 
 import JSZip from "jszip";
 import { DEFAULT_SONG_EXTENSIONS, GENERATED_FILENAMES, CONTROL_FILENAMES } from "./chordpro_crate.js";
 import { findMatches, applyChoices } from "./st_directive.js";
+import { getFileHandleAtPath, writeFileAtPath } from "./fs_helpers.js";
 
 function isIgnoredName(name) {
   return name.startsWith(".") || name.startsWith("~$") || GENERATED_FILENAMES.has(name) || CONTROL_FILENAMES.has(name);
-}
-
-// A local copy of chaos2crate's own writeFileAtPath (src/fs_helpers.js
-// there), not an import — same reasoning as chordpro_crate.js's own local
-// GENERATED_FILENAMES/CONTROL_FILENAMES copy above: this repo has no import
-// dependency on chaos2crate's source. Unlike songbook_html.js's own
-// createPlugin(deps), this module isn't a registered hook-tapping plugin at
-// all — it's a standalone action main.js would import and call directly
-// (see this file's own header comment) — so there's no deps object for it
-// to be handed through in the first place.
-async function writeFileAtPath(dirHandle, relativePath, contents) {
-  const parts = relativePath.split("/").filter(Boolean);
-  const filename = parts.pop();
-  let dir = dirHandle;
-  for (const part of parts) dir = await dir.getDirectoryHandle(part, { create: true });
-  const fh = await dir.getFileHandle(filename, { create: true });
-  const w = await fh.createWritable();
-  await w.write(contents);
-  await w.close();
 }
 
 function matchesAnySuffix(name, suffixes) {
@@ -51,14 +32,6 @@ async function findSongFiles(dirHandle, prefix = "") {
     }
   }
   return found;
-}
-
-async function getFileHandleAtPath(dirHandle, relativePath) {
-  const parts = relativePath.split("/").filter(Boolean);
-  const filename = parts.pop();
-  let dir = dirHandle;
-  for (const part of parts) dir = await dir.getDirectoryHandle(part, { create: false });
-  return dir.getFileHandle(filename, { create: false });
 }
 
 // One flat, globally-numbered list across every song file in the folder, in

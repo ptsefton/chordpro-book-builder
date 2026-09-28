@@ -12,7 +12,9 @@
 //
 // Run this whenever chordprobook's own source, instruments.yaml, or
 // chord_data changes:
-//   node scripts/bundle-chordprobook-for-browser.mjs
+//   node scripts/bundle-chordprobook-for-browser.mjs [--out <file>]
+// --out writes somewhere other than the committed location — build-site.mjs
+// uses it to check the committed copy isn't stale.
 import { readFileSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,8 +23,11 @@ import { parseChordDataText } from "chordprobook/src/chords/loadChordData.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const chordprobookSrc = path.join(root, "node_modules", "chordprobook", "src");
-const outputDir = path.join(root, "src", "chordpro-input", "generated");
-const outputFile = path.join(outputDir, "chordprobook_browser_bundle.js");
+const outIndex = process.argv.indexOf("--out");
+const outputFile = outIndex > 0
+  ? path.resolve(process.argv[outIndex + 1])
+  : path.join(root, "src", "chordpro-input", "generated", "chordprobook_browser_bundle.js");
+const outputDir = path.dirname(outputFile);
 
 // Order matters: ChordDiagram.js and Song.js's own source both reference
 // Transposer (as a bare global, once stripped of its import), so Transposer

@@ -1,5 +1,5 @@
 // Unit tests for crate_index.js — the dependency-free (no `ro-crate`
-// library) index this plugin's songbook HTML output builds over a plain
+// library) index the songbook HTML output builds over a plain
 // ro-crate-metadata.json-shaped object. See that file's own header and
 // SPEC.md's "Songbook HTML output" section.
 import assert from "node:assert/strict";

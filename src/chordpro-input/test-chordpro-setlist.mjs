@@ -1,6 +1,6 @@
 // Unit tests for parseSetlist and matchEntryToSong, now sourced from the
 // chordprobook package (see its own SPEC.md §3.2) rather than a local copy
-// — see this plugin's SPEC.md §6/§6.1 for the design.
+// — see SPEC.md §6/§6.1 for the design.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";

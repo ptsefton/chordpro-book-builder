@@ -1,32 +1,25 @@
 #!/usr/bin/env node
-// Builds a publishable static site from this repository: a Markdown landing
-// page at the site root, the chordpro-only chaos2crate app under
-// deploy.config.json's `appPath`, a demo songbook, and any other Markdown
-// pages `deploy.config.json` lists. See DEPLOY-SPEC.md for the full design;
-// this script implements DEPLOY-SPEC.md §4.
+// Builds the publishable static site: a Markdown landing page at the site
+// root, the songbook builder app under deploy.config.json's `appPath`, a
+// demo songbook, and any other Markdown pages the config lists. See
+// DEPLOY-SPEC.md for the full design.
 //
 // Usage:
-//   node scripts/build-site.mjs [--out site] [--work .site-build] [--clean]
-//                                [--strict] [--skip-tests] [--only app|demo]
+//   node scripts/build-site.mjs [--out site] [--work .site-build] [--strict]
+//                               [--skip-tests] [--only app|demo]
 //   node scripts/build-site.mjs --serve [--out site] [--port 4173]
 //
-// No package dependencies beyond Node builtins, git, and npm on PATH, and
-// this repo's own existing dependencies (jszip, below) — see DEPLOY-SPEC.md
-// §8 on why that matters (this file is the whole install for a repo
-// consuming this pattern). render-markdown.mjs (same rule) is the one
-// exception to "no new files this script doesn't need" — it's small enough,
-// and specific enough to this repo's own docs, to count as part of the
-// build script rather than a real new dependency.
-import { execFileSync, spawnSync } from "node:child_process";
+// Needs nothing beyond this repo's own dependencies (vite, jszip) and Node.
+import { spawnSync } from "node:child_process";
 import {
-  cpSync, existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync,
-  statSync, rmSync,
+  cpSync, existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync, rmSync,
 } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import JSZip from "jszip";
-import { renderMarkdownPage } from "./render-markdown.mjs";
 import http from "node:http";
+import JSZip from "jszip";
+import { build as viteBuild } from "vite";
+import { renderMarkdownPage } from "./render-markdown.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -36,7 +29,6 @@ function parseArgs(argv) {
     const a = argv[i];
     if (a === "--out") args.out = argv[++i];
     else if (a === "--work") args.work = argv[++i];
-    else if (a === "--clean") args.clean = true;
     else if (a === "--strict") args.strict = true;
     else if (a === "--skip-tests") args.skipTests = true;
     else if (a === "--only") args.only = argv[++i];
@@ -55,18 +47,14 @@ function log(msg) {
 }
 
 function run(cmd, cmdArgs, opts = {}) {
-  log(`+ ${cmd} ${cmdArgs.join(" ")}${opts.cwd ? `  (in ${path.relative(repoRoot, opts.cwd) || "."})` : ""}`);
+  log(`+ ${cmd} ${cmdArgs.join(" ")}`);
   const result = spawnSync(cmd, cmdArgs, { stdio: "inherit", ...opts });
   if (result.status !== 0) {
     throw new Error(`build-site: "${cmd} ${cmdArgs.join(" ")}" exited with status ${result.status}`);
   }
 }
 
-function runCapture(cmd, cmdArgs, opts = {}) {
-  return execFileSync(cmd, cmdArgs, { encoding: "utf8", ...opts }).trim();
-}
-
-// ---- §4.8 preview-only mode ---------------------------------------------
+// ---- preview-only mode ------------------------------------------------------
 
 function serve(outDir, port) {
   const root = path.resolve(repoRoot, outDir);
@@ -76,7 +64,7 @@ function serve(outDir, port) {
   const MIME = {
     ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript",
     ".css": "text/css", ".json": "application/json", ".svg": "image/svg+xml",
-    ".png": "image/png", ".jpg": "image/jpeg", ".txt": "text/plain",
+    ".png": "image/png", ".jpg": "image/jpeg", ".txt": "text/plain", ".zip": "application/zip",
   };
   const server = http.createServer((req, res) => {
     let reqPath = decodeURIComponent(req.url.split("?")[0]);
@@ -85,8 +73,7 @@ function serve(outDir, port) {
     if (!filePath.startsWith(root)) { res.writeHead(403); res.end(); return; }
     try {
       const body = readFileSync(filePath);
-      const ext = path.extname(filePath);
-      res.writeHead(200, { "Content-Type": MIME[ext] || "application/octet-stream" });
+      res.writeHead(200, { "Content-Type": MIME[path.extname(filePath)] || "application/octet-stream" });
       res.end(body);
     } catch {
       res.writeHead(404);
@@ -99,235 +86,103 @@ function serve(outDir, port) {
   });
 }
 
-// ---- deploy.config.json ---------------------------------------------------
+// ---- deploy.config.json ------------------------------------------------------
 
 function loadConfig() {
-  const configPath = path.join(repoRoot, "deploy.config.json");
-  const config = JSON.parse(readFileSync(configPath, "utf8"));
-  for (const key of ["wrapper", "plugins", "inputPlugins", "additivePlugins", "demo", "outDir"]) {
+  const config = JSON.parse(readFileSync(path.join(repoRoot, "deploy.config.json"), "utf8"));
+  for (const key of ["demo", "outDir"]) {
     if (!(key in config)) throw new Error(`deploy.config.json: missing required key "${key}"`);
   }
   return config;
 }
 
-// ---- §4.1 scratch workspace ------------------------------------------------
+// ---- the embedded chordprobook bundle ------------------------------------------
 
-function isShaRef(ref) {
-  return /^[0-9a-f]{40}$/i.test(ref);
-}
-
-function ensureClone(workDir, dirName, repo, ref, stamp) {
-  const dest = path.join(workDir, dirName);
-  if (existsSync(dest) && stamp[dirName] === ref) {
-    log(`${dirName}: reusing existing clone at ${ref}`);
-    return;
-  }
-  if (existsSync(dest)) rmSync(dest, { recursive: true, force: true });
-  const url = process.env.GH_TOKEN || process.env.GITHUB_TOKEN
-    ? `https://x-access-token:${process.env.GH_TOKEN || process.env.GITHUB_TOKEN}@github.com/${repo}.git`
-    : `https://github.com/${repo}.git`;
-  if (isShaRef(ref)) {
-    mkdirSync(dest, { recursive: true });
-    run("git", ["init", "-q"], { cwd: dest });
-    run("git", ["remote", "add", "origin", url], { cwd: dest });
-    run("git", ["fetch", "--depth", "1", "origin", ref], { cwd: dest });
-    run("git", ["checkout", "-q", "FETCH_HEAD"], { cwd: dest });
-  } else {
-    run("git", ["clone", "--depth", "1", "--branch", ref, url, dest]);
-  }
-  stamp[dirName] = ref;
-}
-
-function copyPluginSelf(workDir) {
-  const dest = path.join(workDir, "c2c-chordpro-plugin");
-  rmSync(dest, { recursive: true, force: true });
-  mkdirSync(dest, { recursive: true });
-  const files = runCapture("git", ["ls-files", "--cached", "--others", "--exclude-standard"], { cwd: repoRoot })
-    .split("\n")
-    .filter(Boolean);
-  for (const rel of files) {
-    const from = path.join(repoRoot, rel);
-    const to = path.join(dest, rel);
-    mkdirSync(path.dirname(to), { recursive: true });
-    cpSync(from, to);
-  }
-  return dest;
-}
-
-function ensurePluginSource(workDir, config, stamp) {
-  if (config.plugin === "self") {
-    log("plugin: copying working tree (deploy.config.json plugin: \"self\")");
-    return copyPluginSelf(workDir);
-  }
-  ensureClone(workDir, "c2c-chordpro-plugin", config.plugin.repo, config.plugin.ref, stamp);
-  return path.join(workDir, "c2c-chordpro-plugin");
-}
-
-// ---- §4.3 install -----------------------------------------------------
-
-function resolveLockedChordprobookCommit(pluginDir) {
-  const lock = JSON.parse(readFileSync(path.join(pluginDir, "package-lock.json"), "utf8"));
-  const entry = lock.packages?.["node_modules/chordprobook"];
-  if (!entry?.resolved) {
-    throw new Error("build-site: could not find node_modules/chordprobook in package-lock.json after npm ci");
-  }
-  // entry.resolved is a git URL like "git+https://github.com/ptsefton/chordprobook-js.git#<sha>"
-  const match = entry.resolved.match(/#([0-9a-f]{40})$/i);
-  if (!match) {
-    throw new Error(`build-site: could not read a resolved commit for chordprobook from lockfile: ${entry.resolved}`);
-  }
-  return match[1];
-}
-
-function install(workDir, config) {
-  const chaos2crateDir = path.join(workDir, "chaos2crate");
-  const pluginsDir = path.join(workDir, "c2c-plugins");
-  const pluginDir = path.join(workDir, "c2c-chordpro-plugin");
-
-  run("npm", ["ci"], { cwd: pluginsDir });
-  run("npm", ["ci"], { cwd: pluginDir });
-
-  // A fresh chaos2crate clone has no idea this plugin exists — that wiring
-  // is normally a manual, uncommitted step (see README's "Consuming this
-  // package"). Add both file: deps ourselves so a fresh clone builds.
-  run("npm", ["pkg", "set", "dependencies.c2c-plugins=file:../c2c-plugins"], { cwd: chaos2crateDir });
-  run("npm", ["pkg", "set", "dependencies.c2c-chordpro-plugin=file:../c2c-chordpro-plugin"], { cwd: chaos2crateDir });
-
-  const chordprobookSha = resolveLockedChordprobookCommit(pluginDir);
-  log(`pinning chaos2crate's chordprobook to ${chordprobookSha} (from this plugin's lockfile)`);
-  run("npm", ["pkg", "set", `overrides.chordprobook=github:ptsefton/chordprobook-js#${chordprobookSha}`], { cwd: chaos2crateDir });
-
-  run("npm", ["install"], { cwd: chaos2crateDir });
-}
-
-// ---- §4.4 regenerate + verify the browser bundle ---------------------------
-
-function verifyBundle(pluginDir, strict) {
-  run("npm", ["run", "generate:chordprobook-bundle"], { cwd: pluginDir });
-  const generated = readFileSync(path.join(pluginDir, "src", "chordpro-input", "generated", "chordprobook_browser_bundle.js"), "utf8");
-  const committed = readFileSync(path.join(repoRoot, "src", "chordpro-input", "generated", "chordprobook_browser_bundle.js"), "utf8");
-  if (generated !== committed) {
-    const msg = "the committed chordprobook_browser_bundle.js is stale relative to the pinned chordprobook — "
+// Every songbook embeds generated/chordprobook_browser_bundle.js, which is
+// committed. Regenerate it from the installed (lockfile-pinned) chordprobook
+// into the work dir and compare, so a stale committed copy is caught here
+// rather than shipped.
+function verifyBundle(workDir, strict) {
+  const fresh = path.join(workDir, "chordprobook_browser_bundle.js");
+  run("node", [path.join(repoRoot, "scripts", "bundle-chordprobook-for-browser.mjs"), "--out", fresh]);
+  const committed = path.join(repoRoot, "src", "chordpro-input", "generated", "chordprobook_browser_bundle.js");
+  if (readFileSync(fresh, "utf8") !== readFileSync(committed, "utf8")) {
+    const msg = "the committed chordprobook_browser_bundle.js is stale relative to the installed chordprobook — "
       + "run \"npm run generate:chordprobook-bundle\" and commit the result.";
     if (strict) throw new Error(`build-site: ${msg}`);
     log(`WARNING: ${msg}`);
   } else {
-    log("chordprobook_browser_bundle.js matches the pinned chordprobook commit.");
+    log("chordprobook_browser_bundle.js matches the installed chordprobook.");
   }
 }
 
-// ---- §4.5 build the app -----------------------------------------------------
+// ---- the app ---------------------------------------------------------------------
 
-// A visit to `<appPath>/` with no `?profile=` (or any other query string —
-// preserved, not clobbered) gets redirected, client-side, to one that names
-// `profileId` — before chaos2crate's own bundle even starts loading, so
-// there's no flash of the un-profiled Select-Profile step. This is a
-// build-time patch of the already-built dist/index.html, not a chaos2crate
-// change: chaos2crate's own `?profile=` override (SPEC.md §8) already does
-// everything needed once the query string is there; this just makes sure
-// it's there for a bare link. Idempotent — a URL that already names a
-// profile is left alone, so this can never redirect twice.
-function forceProfileRedirectScript(profileId) {
-  return `<script>(function(){var p=new URLSearchParams(location.search);`
-    + `if(!p.has("profile")){p.set("profile",${JSON.stringify(profileId)});`
-    + `location.replace(location.pathname+"?"+p.toString()+location.hash);}})();</script>\n`;
-}
-
-function buildApp(workDir, config, strict) {
-  const chaos2crateDir = path.join(workDir, "chaos2crate");
-  run("npm", ["run", "build"], {
-    cwd: chaos2crateDir,
-    env: {
-      ...process.env,
-      PLUGINS: config.additivePlugins.join(","),
-      INPUT_PLUGINS: config.inputPlugins,
-    },
+async function buildApp(destDir) {
+  log(`building the app into ${path.relative(repoRoot, destDir)}/`);
+  await viteBuild({
+    configFile: path.join(repoRoot, "vite.config.js"),
+    build: { outDir: destDir, emptyOutDir: true },
+    logLevel: "warn",
   });
-  const indexHtmlPath = path.join(chaos2crateDir, "dist", "index.html");
-  let indexHtml = readFileSync(indexHtmlPath, "utf8");
-  const hasAbsoluteAsset = /(?:src|href)="\/[^/]/.test(indexHtml);
-  if (hasAbsoluteAsset) {
-    const msg = "chaos2crate's built index.html references an absolute asset path — "
-      + "vite.config.js's base setting may have changed upstream; this site expects base: \"./\".";
-    if (strict) throw new Error(`build-site: ${msg}`);
-    log(`WARNING: ${msg}`);
-  }
-
-  if (config.forceProfile) {
-    if (!indexHtml.includes("<head>")) {
-      const msg = "could not inject the forceProfile redirect — dist/index.html has no <head> tag";
-      if (strict) throw new Error(`build-site: ${msg}`);
-      log(`WARNING: ${msg}`);
-    } else {
-      log(`patching dist/index.html to force ?profile=${config.forceProfile} on a bare visit`);
-      indexHtml = indexHtml.replace("<head>", `<head>\n${forceProfileRedirectScript(config.forceProfile)}`);
-      writeFileSync(indexHtmlPath, indexHtml);
-    }
-  }
-
-  return path.join(chaos2crateDir, "dist");
 }
 
-// ---- §4.6 build the demo songbook(s) ----------------------------------------
+// ---- demo songbook(s) --------------------------------------------------------
 
-// Mirrors chordpro_crate.js's own GENERATED_FILENAMES (a local copy there
-// too, of chaos2crate's own list, for the same reason: this script has no
-// import dependency on the plugin's source, only a copy/npm relationship to
-// it — see that file's own header comment). Excluded from the samples zip
-// (below) since they're this plugin's own build output, not source content
-// someone downloading the zip would want to start from.
+// Left out of the samples zip: they're this tool's own output, not source
+// content someone downloading the zip would want to start from.
 const GENERATED_ARTIFACT_NAMES = new Set([
   "ro-crate-metadata.json", "ro-crate-metadata.jsonld", "ro-crate-metadata.xlsx",
   "ro-crate-preview.html", "additional-ro-crate-metadata.xlsx", "songbook.html",
 ]);
 
-async function buildDemo(pluginDir, demoEntry, outDir) {
-  const sourceInCopy = path.join(pluginDir, demoEntry.source);
-  run("node", [path.join(pluginDir, "src", "chordpro-input", "build-songbook.mjs"), sourceInCopy]);
+async function buildDemo(demoEntry, workDir, outDir) {
+  // Built from a scratch copy, so the committed samples folder is never
+  // written to.
+  const sourceDir = path.join(repoRoot, demoEntry.source);
+  const scratch = path.join(workDir, "demo", demoEntry.path);
+  rmSync(scratch, { recursive: true, force: true });
+  mkdirSync(scratch, { recursive: true });
+  for (const name of readdirSync(sourceDir)) {
+    if (GENERATED_ARTIFACT_NAMES.has(name)) continue;
+    cpSync(path.join(sourceDir, name), path.join(scratch, name), { recursive: true });
+  }
+  const cliArgs = [path.join(repoRoot, "src", "chordpro-input", "build-songbook.mjs"), scratch, "--file", "songbook.html"];
+  if (demoEntry.title) cliArgs.push("--title", demoEntry.title);
+  run("node", cliArgs);
 
   const destDir = path.join(outDir, demoEntry.path);
   mkdirSync(destDir, { recursive: true });
-  for (const entry of readdirSync(sourceInCopy)) {
-    cpSync(path.join(sourceInCopy, entry), path.join(destDir, entry), { recursive: true });
-  }
+  cpSync(scratch, destDir, { recursive: true });
   writeFileSync(
     path.join(destDir, "index.html"),
     '<!doctype html><meta http-equiv="refresh" content="0; url=songbook.html">\n',
   );
 
-  if (demoEntry.zip) {
-    await buildSamplesZip(sourceInCopy, path.join(destDir, demoEntry.zip));
-  }
+  if (demoEntry.zip) await buildSamplesZip(sourceDir, path.join(destDir, demoEntry.zip));
 }
 
-// A downloadable zip of the demo's own source charts/setlists — the point
-// is to hand someone a folder they can point this tool at themselves, not
-// a copy of what this tool already produced from it.
+// A downloadable zip of the demo's own source charts/setlists — a folder
+// someone can point the app at themselves.
 async function buildSamplesZip(sourceDir, destZipPath) {
   const zip = new JSZip();
   for (const name of readdirSync(sourceDir)) {
     if (name.startsWith(".") || name.startsWith("~$") || GENERATED_ARTIFACT_NAMES.has(name)) continue;
     const fullPath = path.join(sourceDir, name);
-    if (statSync(fullPath).isDirectory()) continue; // samples/ is flat; nothing here to recurse into
+    if (statSync(fullPath).isDirectory()) continue; // samples/ is flat
     zip.file(name, readFileSync(fullPath));
   }
   writeFileSync(destZipPath, await zip.generateAsync({ type: "nodebuffer" }));
 }
 
-// ---- landing page + docs pages -------------------------------------------
+// ---- landing page + docs pages -------------------------------------------------
 
-// Both `landing` and each entry in `pages` are Markdown files that live in
-// this repo's own working tree (not the scratch workspace — they're static
-// content belonging to this plugin, not built from chaos2crate), rendered
-// with render-markdown.mjs into a plain, self-contained HTML page at
-// `outDir/<path>`.
 function buildMarkdownPage(sourcePath, destPath) {
-  const markdown = readFileSync(sourcePath, "utf8");
   mkdirSync(path.dirname(destPath), { recursive: true });
-  writeFileSync(destPath, renderMarkdownPage(markdown));
+  writeFileSync(destPath, renderMarkdownPage(readFileSync(sourcePath, "utf8")));
 }
 
-// ---- tree printing ------------------------------------------------------
+// ---- tree printing --------------------------------------------------------------
 
 function formatSize(bytes) {
   if (bytes < 1024) return `${bytes} B`;
@@ -348,11 +203,10 @@ function printTree(dir, prefix = "") {
   }
 }
 
-// ---- main ---------------------------------------------------------------
+// ---- main ---------------------------------------------------------------------
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-
   if (args.serve) {
     serve(args.out, args.port);
     return;
@@ -361,29 +215,19 @@ async function main() {
   const config = loadConfig();
   const workDir = path.resolve(repoRoot, args.work);
   const outDir = path.resolve(repoRoot, args.out);
-  const stampPath = path.join(workDir, ".stamp.json");
-
-  if (args.clean) {
-    log(`--clean: removing ${path.relative(repoRoot, workDir)}`);
-    rmSync(workDir, { recursive: true, force: true });
-  }
   mkdirSync(workDir, { recursive: true });
-  const stamp = existsSync(stampPath) ? JSON.parse(readFileSync(stampPath, "utf8")) : {};
 
-  if (!args.skipTests) {
-    run("npm", ["test"], { cwd: repoRoot });
-  }
-
-  ensureClone(workDir, "chaos2crate", config.wrapper.repo, config.wrapper.ref, stamp);
-  ensureClone(workDir, "c2c-plugins", config.plugins.repo, config.plugins.ref, stamp);
-  const pluginDir = ensurePluginSource(workDir, config, stamp);
-  writeFileSync(stampPath, JSON.stringify(stamp, null, 2));
-
-  install(workDir, config);
-  verifyBundle(pluginDir, args.strict);
+  if (!args.skipTests) run("npm", ["test"], { cwd: repoRoot });
+  verifyBundle(workDir, args.strict);
 
   rmSync(outDir, { recursive: true, force: true });
   mkdirSync(outDir, { recursive: true });
+
+  // First, since Vite empties its outDir — the site root itself when there
+  // is no appPath.
+  if (args.only !== "demo") {
+    await buildApp(config.appPath ? path.join(outDir, config.appPath) : outDir);
+  }
 
   if (config.landing) {
     log(`rendering landing page: ${config.landing.source} -> ${config.landing.path}`);
@@ -394,16 +238,10 @@ async function main() {
     buildMarkdownPage(path.join(repoRoot, page.source), path.join(outDir, page.path));
   }
 
-  if (args.only !== "demo") {
-    const dist = buildApp(workDir, config, args.strict);
-    const appDest = config.appPath ? path.join(outDir, config.appPath) : outDir;
-    cpSync(dist, appDest, { recursive: true });
-  }
-
   if (args.only !== "app") {
     for (const demoEntry of config.demo) {
       log(`building demo songbook: ${demoEntry.source} -> ${demoEntry.path}/`);
-      await buildDemo(pluginDir, demoEntry, outDir);
+      await buildDemo(demoEntry, workDir, outDir);
     }
   }
 

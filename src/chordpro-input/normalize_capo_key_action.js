@@ -1,8 +1,6 @@
-// "Normalize capos and keys…" (SPEC.md §18) — an optionSchema "action" tile,
-// same shape as key_review_action.js's own "Review guessed keys…". Runs
-// independently of the crate-building pipeline entirely — clicking the tile
-// scans the current folder's crate immediately, no "Build" required first
-// or after.
+// "Normalize capos and keys…" (SPEC.md §18) — same shape as
+// key_review_action.js's "Review guessed keys…": runs against the crate
+// already on disk, independently of a build.
 //
 // Detects songs where the chart's own chord shapes don't match the charted
 // `{key:}` a human typed, but DO match that key transposed down by the
@@ -14,15 +12,10 @@
 // the two apart.
 
 import JSZip from "jszip";
+import { verifyPermission, readJsonFromFolder, getFileHandleAtPath, writeFileAtPath } from "./fs_helpers.js";
+import { setDirectiveValue, extractCapoKeyMismatches } from "./chordpro_crate.js";
+import { CRATE_FILE, writeOutputs } from "./songbook_build.js";
 
-let verifyPermission, readJsonFromFolder, writeFile, openModal;
-
-export function createPlugin(deps) {
-  ({ verifyPermission, readJsonFromFolder, writeFile, openModal } = deps);
-  return plugin;
-}
-
-const CRATE_FILE = "ro-crate-metadata.json";
 const BACKUP_DIR = ".chordpro-normalize-backups";
 
 // This feature's own tile styling — injected once into document.head, same
@@ -89,7 +82,7 @@ function collectSelections(checkboxes) {
   return selections;
 }
 
-function openNormalizeModal(items) {
+function openNormalizeModal(openModal, items) {
   ensureStylesInjected();
   let checkboxes;
   let writeBackCheckbox;
@@ -140,28 +133,6 @@ function openNormalizeModal(items) {
   });
 }
 
-// A local copy of the same relative-path file walk fix_st_directive_ui.js
-// and key_review_action.js already each have — not an import, same
-// reasoning as those files' own header comments.
-async function getFileHandleAtPath(dirHandle, relativePath) {
-  const parts = relativePath.split("/").filter(Boolean);
-  const filename = parts.pop();
-  let dir = dirHandle;
-  for (const part of parts) dir = await dir.getDirectoryHandle(part, { create: false });
-  return dir.getFileHandle(filename, { create: false });
-}
-
-async function writeFileAtPath(dirHandle, relativePath, contents) {
-  const parts = relativePath.split("/").filter(Boolean);
-  const filename = parts.pop();
-  let dir = dirHandle;
-  for (const part of parts) dir = await dir.getDirectoryHandle(part, { create: true });
-  const fh = await dir.getFileHandle(filename, { create: true });
-  const w = await fh.createWritable();
-  await w.write(contents);
-  await w.close();
-}
-
 // Backs up, then rewrites, every file in `entries` ({id, suggestedKey,
 // suggestedTranspose}) — a separate backup folder from key_review_action.js's
 // own (SPEC.md §17) and fix_st_directive_action.js's own (§15), so all
@@ -169,7 +140,6 @@ async function writeFileAtPath(dirHandle, relativePath, contents) {
 // each file fresh off disk rather than trusting the crate's own (possibly
 // stale) `text`, same reasoning as those tools.
 async function writeNormalizedFiles(dirHandle, entries) {
-  const { setDirectiveValue } = await import("./chordpro_crate.js");
   const zip = new JSZip();
   let filesChanged = 0;
   for (const { id, suggestedKey, suggestedTranspose } of entries) {
@@ -189,7 +159,8 @@ async function writeNormalizedFiles(dirHandle, entries) {
   return { filesChanged, backupPath };
 }
 
-async function runNormalizeCapoKey({ dirHandle, log }) {
+// Resolves to { changed, wroteSongFiles }, same as reviewKeyGuesses.
+export async function normalizeCapoKeys({ dirHandle, log, openModal }) {
   if (!(await verifyPermission(dirHandle, true))) {
     log("Permission to read/write the folder was denied.", "err");
     return;
@@ -207,14 +178,13 @@ async function runNormalizeCapoKey({ dirHandle, log }) {
     return;
   }
 
-  const { extractCapoKeyMismatches } = await import("./chordpro_crate.js");
   const mismatches = extractCapoKeyMismatches(crateJson);
   if (!mismatches.length) {
     log("Normalize capos and keys: no likely mismatches found.", "info");
     return;
   }
 
-  const picks = await openNormalizeModal(mismatches);
+  const picks = await openNormalizeModal(openModal, mismatches);
   if (!picks) {
     log("Normalize capos and keys: cancelled, nothing changed.", "info");
     return;
@@ -235,29 +205,18 @@ async function runNormalizeCapoKey({ dirHandle, log }) {
   }
 
   try {
-    await writeFile(dirHandle, CRATE_FILE, JSON.stringify(crateJson, null, 2));
-    const { renderSongbookHtml, OUTPUT_FILE } = await import("./songbook_html.js");
-    await writeFile(dirHandle, OUTPUT_FILE, renderSongbookHtml(crateJson));
-    let message = `Normalize capos and keys: fixed ${toApply.length} song${toApply.length === 1 ? "" : "s"}. ` +
-      `Re-wrote ${CRATE_FILE} and ${OUTPUT_FILE}.`;
+    await writeOutputs(dirHandle, crateJson, log);
+    let message = `Normalize capos and keys: fixed ${toApply.length} song${toApply.length === 1 ? "" : "s"}.`;
+    let wroteSongFiles = false;
     if (picks.writeBack) {
       const { filesChanged, backupPath } = await writeNormalizedFiles(dirHandle, toApply);
       message += ` Wrote {key:}/{transpose:} into ${filesChanged} file(s) (backup: ${backupPath}).`;
+      wroteSongFiles = filesChanged > 0;
     }
     log(message, "ok");
+    return { changed: true, wroteSongFiles };
   } catch (e) {
     log("Could not save normalize changes: " + (e && e.message ? e.message : e), "err");
+    return { changed: false, wroteSongFiles: false };
   }
 }
-
-const plugin = {
-  name: "normalize-capo-key",
-  optionSchema: {
-    key: "normalizeCapoKey",
-    kind: "action",
-    label: "Normalize capos and keys…",
-    hint: "Find songs charted as-heard (key includes the capo) and offer to revert them to this " +
-      "tool's own convention — logs \"no likely mismatches\" if none are found.",
-    run: runNormalizeCapoKey,
-  },
-};

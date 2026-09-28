@@ -4,7 +4,7 @@
 // HTML output" and "UI" sections.
 import assert from "node:assert/strict";
 import { ChordProSong, renderSong, Transposer, ChordDiagram } from "chordprobook";
-import { createPlugin, renderSongbookHtml, initSongbookApp } from "./songbook_html.js";
+import { renderSongbookHtml, renderRedirectHtml, bookTitleFromCrate, initSongbookApp } from "./songbook_html.js";
 import {
   CHORDPROBOOK_BROWSER_BUNDLE,
   CHORDPROBOOK_INSTRUMENTS_DATA,
@@ -1193,6 +1193,7 @@ function isFittedFontSize(value) {
   assert.equal(elements["print-content"].children.length, 3);
 
   const [frontPage, songOne, songTwo] = elements["print-content"].children;
+  assert.equal(frontPage.children[0].textContent, "Songbook"); // the fixture's own root dataset name
   assert.ok(frontPage.className.includes("print-title-page"));
   assert.ok(frontPage.className.includes("print-toc"));
   // frontPage.children: [h1, "Contents" h2, <ol>, page-number] — no
@@ -2870,142 +2871,52 @@ function isFittedFontSize(value) {
   assert.ok(html.includes("<\\/script>"));
 }
 
-/* ---------- the plugin: end to end against a mock folder ---------- */
-
-function notFoundError() {
-  const e = new Error("not found");
-  e.name = "NotFoundError";
-  return e;
+{
+  // Chords: red by default, yellow in dark mode — on screen only, so a
+  // dark-mode print never gets yellow chords on white paper.
+  const html = renderSongbookHtml({ "@graph": [] });
+  assert.ok(html.includes("--chord: #ff0000;"));
+  assert.match(html, /@media screen and \(prefers-color-scheme: dark\) \{\s*:root \{ --chord: #ffd60a; \}/);
 }
 
-function memoryDirHandle(initialFiles = {}) {
-  const files = new Map(Object.entries(initialFiles));
-  function wrapFileHandle(name) {
-    return {
-      async getFile() { return new File([files.get(name)], name); },
-      async createWritable() {
-        return {
-          async write(contents) { files.set(name, typeof contents === "string" ? contents : new TextDecoder().decode(contents)); },
-          async close() {},
-        };
-      },
-    };
-  }
-  return {
-    async getFileHandle(name, { create = false } = {}) {
-      if (!files.has(name) && !create) throw notFoundError();
-      if (!files.has(name) && create) files.set(name, "");
-      return wrapFileHandle(name);
-    },
-    readFile: (name) => files.get(name),
+/* ---------- the book title, and the ro-crate-preview.html redirect ---------- */
+
+{
+  // The printed book's title page uses the root dataset's name — found via
+  // the metadata descriptor's `about`, as a real crate records it.
+  const titled = {
+    "@graph": [
+      { "@id": "ro-crate-metadata.json", "@type": "CreativeWork", about: [{ "@id": "./" }] },
+      ...CRATE_JSON["@graph"].map((e) => (e["@id"] === "./" ? { ...e, name: ["Friday Band Book"] } : e)),
+    ],
   };
-}
-
-// Minimal stand-ins for chaos2crate's own src/plugins/deps.js functions of
-// the same name — real production code gets these injected via
-// createPlugin(deps) by chaos2crate itself (this repo has no import
-// dependency on chaos2crate's source, so it can't import the real ones);
-// these mirror their exact File-System-Access-API-shaped behavior closely
-// enough to exercise the plugin faithfully against memoryDirHandle.
-async function fileExists(handle, filename) {
-  try { await handle.getFileHandle(filename, { create: false }); return true; }
-  catch { return false; }
-}
-async function readJsonFromFolder(handle, filename) {
-  let text;
-  try {
-    const fh = await handle.getFileHandle(filename, { create: false });
-    text = await (await fh.getFile()).text();
-  } catch (e) {
-    if (e && e.name === "NotFoundError") return null;
-    throw e;
-  }
-  return JSON.parse(text);
-}
-async function writeFile(handle, filename, contents) {
-  const fh = await handle.getFileHandle(filename, { create: true });
-  const w = await fh.createWritable();
-  await w.write(contents);
-  await w.close();
-}
-
-const songbookHtmlPlugin = createPlugin({ writeFile, readJsonFromFolder, fileExists });
-
-function makeCtx(overrides = {}) {
-  const messages = [];
-  return {
-    dirHandle: memoryDirHandle({ "ro-crate-metadata.json": JSON.stringify(CRATE_JSON) }),
-    options: { inputMode: "chordpro", overwrite: true },
-    log: (msg, level) => messages.push({ msg, level }),
-    messages,
-    ...overrides,
-  };
+  const { doc, elements } = fakeDocument(titled);
+  initSongbookApp(doc, fakeWindow());
+  elements["print-book-button"].click();
+  assert.equal(elements["print-content"].children[0].children[0].textContent, "Friday Band Book");
 }
 
 {
-  const ctx = makeCtx();
-  await songbookHtmlPlugin.hooks["output:write"](ctx);
-  const written = ctx.dirHandle.readFile("songbook.html");
-  assert.ok(written);
-  assert.ok(written.includes(JSON.stringify(CRATE_JSON, null, 2).slice(0, 40)));
-  assert.ok(ctx.messages.some((m) => m.level === "ok" && m.msg.includes("2 song(s)")));
-
-  // The redirect page main.js's "Show" button looks for is also written,
-  // pointing at the songbook this same hook run just wrote.
-  const redirect = ctx.dirHandle.readFile("ro-crate-preview.html");
-  assert.ok(redirect);
-  // Posts to window.opener (chaos2crate's own preview-popup protocol — see
-  // songbook_html.js's own comment on renderRedirectHtml) rather than a
-  // plain <meta refresh>, with a same-page navigation as the no-opener
-  // fallback.
-  assert.ok(redirect.includes('source: "r2c-preview"'));
-  assert.ok(redirect.includes('page: "songbook.html"'));
-  assert.ok(redirect.includes('window.location.replace("songbook.html")'));
-  assert.ok(ctx.messages.some((m) => m.level === "ok" && m.msg.includes("ro-crate-preview.html")));
+  // The root dataset's name is the book title: the page <title>, and the
+  // song list's own heading — escaped, since it's typed by a person.
+  const html = renderSongbookHtml({
+    "@graph": [
+      { "@id": "ro-crate-metadata.json", "@type": "CreativeWork", about: { "@id": "./" } },
+      { "@id": "./", "@type": "Dataset", name: ["Pub <Gig> Book"] },
+    ],
+  });
+  assert.ok(html.includes("<title>Pub &lt;Gig&gt; Book</title>"));
+  assert.ok(html.includes('<section id="list-view">\n<h1>Pub &lt;Gig&gt; Book</h1>'));
+  assert.equal(bookTitleFromCrate({ "@graph": [{ "@id": "./", "@type": "Dataset", name: "Plain" }] }), "Plain");
+  // No name at all — the old fixed title.
+  assert.equal(bookTitleFromCrate({ "@graph": [{ "@id": "./", "@type": "Dataset" }] }), "Songbook");
+  assert.ok(renderSongbookHtml({ "@graph": [] }).includes("<title>Songbook</title>"));
 }
 
 {
-  // Not a chordpro build — must do nothing at all, not even read the folder.
-  const ctx = makeCtx({ options: { inputMode: "generic", overwrite: true } });
-  await songbookHtmlPlugin.hooks["output:write"](ctx);
-  assert.equal(ctx.dirHandle.readFile("songbook.html"), undefined);
-  assert.equal(ctx.dirHandle.readFile("ro-crate-preview.html"), undefined);
-  assert.equal(ctx.messages.length, 0);
-}
-
-{
-  // No crate JSON in the folder at all — logs a warning, doesn't throw.
-  const ctx = makeCtx({ dirHandle: memoryDirHandle({}) });
-  await assert.doesNotReject(() => songbookHtmlPlugin.hooks["output:write"](ctx));
-  assert.ok(ctx.messages.some((m) => m.level === "warn" && m.msg.includes("not found")));
-}
-
-{
-  // overwrite: false and the file already exists — skipped, existing
-  // content left untouched (and the redirect isn't touched either, since
-  // the hook returns before reaching that part).
-  const ctx = makeCtx({ options: { inputMode: "chordpro", overwrite: false } });
-  await ctx.dirHandle.getFileHandle("songbook.html", { create: true })
-    .then((h) => h.createWritable())
-    .then((w) => w.write("PRE-EXISTING"));
-  await songbookHtmlPlugin.hooks["output:write"](ctx);
-  assert.equal(ctx.dirHandle.readFile("songbook.html"), "PRE-EXISTING");
-  assert.equal(ctx.dirHandle.readFile("ro-crate-preview.html"), undefined);
-  assert.ok(ctx.messages.some((m) => m.level === "warn" && m.msg.includes("overwrite is off")));
-}
-
-{
-  // songbook.html doesn't exist yet (so the first write proceeds) but
-  // ro-crate-preview.html already does, with overwrite off — the redirect
-  // write is independently skipped, existing content left untouched.
-  const ctx = makeCtx({ options: { inputMode: "chordpro", overwrite: false } });
-  await ctx.dirHandle.getFileHandle("ro-crate-preview.html", { create: true })
-    .then((h) => h.createWritable())
-    .then((w) => w.write("PRE-EXISTING-REDIRECT"));
-  await songbookHtmlPlugin.hooks["output:write"](ctx);
-  assert.ok(ctx.dirHandle.readFile("songbook.html"));
-  assert.equal(ctx.dirHandle.readFile("ro-crate-preview.html"), "PRE-EXISTING-REDIRECT");
-  assert.ok(ctx.messages.some((m) => m.level === "warn" && m.msg.includes("ro-crate-preview.html exists")));
+  const redirect = renderRedirectHtml("Band Book.html");
+  assert.ok(redirect.includes('<meta http-equiv="refresh" content="0; url=Band%20Book.html">'));
+  assert.ok(redirect.includes('<a href="Band%20Book.html">Band Book.html</a>'));
 }
 
 console.log("test-songbook-html.mjs: all assertions passed.");

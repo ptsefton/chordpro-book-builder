@@ -11,8 +11,10 @@ into a standalone, interactive, printable songbook — a single HTML file with:
 
 ## Get started
 
-- [**Build your own songbook**](build/) — pick a folder of `.cho`/`.pro`/setlist files.
+- [**Build your own songbook**](build/): choose a folder of `.cho`/`.pro` songs and
+  `.setlist.md` setlists, give the book a title, and it's saved next to your songs. Needs desktop
+  Chrome or Edge. Nothing is uploaded; it all runs in your browser.
 - [**See a sample songbook**](demo/songbook.html) — built from the files in [`demo/`](demo/).
 - [**Download the sample files**](demo/samples.zip) to try building a songbook yourself.
-- [The ChordPro dialect this uses](chordpro-format.html) 
-- [Source on GitHub](https://github.com/ptsefton/c2c-chordpro-plugin)
+- [The ChordPro dialect this uses](chordpro-format.html)
+- [Source on GitHub](https://github.com/ptsefton/chordpro-book-builder)

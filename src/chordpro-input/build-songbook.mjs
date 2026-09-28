@@ -1,89 +1,122 @@
 #!/usr/bin/env node
-// Standalone CLI: builds songbook.html (and, as a byproduct,
-// ro-crate-metadata.json) for one folder of ChordPro songs/setlists, with no
-// browser and no resources2crate app UI involved. See SPEC.md's "Songbook
-// HTML output" section.
+// Standalone CLI: builds a songbook for one folder of ChordPro songs and
+// setlists, with no browser involved — the same buildSongbook() the app
+// runs (songbook_build.js), against a small File System Access API
+// stand-in over plain Node `fs`. See SPEC.md's "Songbook HTML output"
+// section.
 //
-// Deliberately self-contained within this plugin's own folder — every import
-// below is either a relative path inside chordpro-input/, a Node builtin, or
-// chordprobook (the npm package this plugin already depends on regardless).
-// Nothing here reaches into resources2crate's own src/crate.js, src/
-// fs_helpers.js, or the HOOKS/plugin-bus machinery those use — this plugin is
-// meant to eventually move into its own repo (SPEC.md's own note on that),
-// and this script should keep working unchanged, against a plain npm
-// dependency on chordprobook, the day that happens.
+// The title and songbook filename default to whatever an earlier build of
+// the same folder recorded in its ro-crate-metadata.json (else the folder's
+// own name and songbook.html), exactly as the app's own form prefills them.
+// Ambiguous setlist matches are never asked about here: a choice recorded
+// by an earlier build is reused, anything else gets the path-proximity
+// default (SPEC.md §16).
 //
 // Usage:
-//   node src/plugins/chordpro-input/build-songbook.mjs <folder>
-//   npm run build:songbook -- <folder>
+//   node src/chordpro-input/build-songbook.mjs <folder> [--title "My Songbook"] [--file my-songbook.html]
+//   npm run build:songbook -- <folder> [--title ...] [--file ...]
 import fs from "node:fs";
 import path from "node:path";
-import { buildCrateFromChordProFolder } from "./chordpro_crate.js";
-import { renderSongbookHtml } from "./songbook_html.js";
+import { extractPersistedSetlistMatches } from "./chordpro_crate.js";
+import { buildSongbook, readBookSettings, CRATE_FILE } from "./songbook_build.js";
+import { readJsonFromFolder } from "./fs_helpers.js";
 
-const CRATE_FILE = "ro-crate-metadata.json";
-const OUTPUT_FILE = "songbook.html";
+function notFound(what) {
+  const e = new Error(`${what} not found`);
+  e.name = "NotFoundError";
+  return e;
+}
 
-// buildCrateFromChordProFolder expects a File System Access API-shaped
-// directory handle (an async `values()` iterator yielding {kind, name,
-// getFile()|values()}) — the same interface `main.js`'s own
-// `showDirectoryPicker()` result provides in a browser. This is a read-only
-// stand-in over plain Node `fs`, mirroring the shape exactly rather than
-// changing buildCrateFromChordProFolder itself to accept two different kinds
-// of input.
-function wrapDirRead(realPath, name) {
+// Mirrors the shape of a FileSystemDirectoryHandle closely enough for
+// everything songbook_build.js and chordpro_crate.js call on one.
+function dirHandleFor(realPath, name = path.basename(realPath)) {
   return {
     kind: "directory",
     name,
     async *values() {
       for (const entry of fs.readdirSync(realPath, { withFileTypes: true })) {
         const childPath = path.join(realPath, entry.name);
-        if (entry.isDirectory()) yield wrapDirRead(childPath, entry.name);
-        else if (entry.isFile()) yield wrapFileRead(childPath, entry.name);
+        if (entry.isDirectory()) yield dirHandleFor(childPath, entry.name);
+        else if (entry.isFile()) yield fileHandleFor(childPath, entry.name);
       }
+    },
+    async getDirectoryHandle(child, { create = false } = {}) {
+      const childPath = path.join(realPath, child);
+      if (!fs.existsSync(childPath)) {
+        if (!create) throw notFound(child);
+        fs.mkdirSync(childPath);
+      }
+      return dirHandleFor(childPath, child);
+    },
+    async getFileHandle(child, { create = false } = {}) {
+      const childPath = path.join(realPath, child);
+      if (!fs.existsSync(childPath) && !create) throw notFound(child);
+      return fileHandleFor(childPath, child);
     },
   };
 }
 
-function wrapFileRead(realPath, name) {
-  return { kind: "file", name, async getFile() { return new File([fs.readFileSync(realPath)], name); } };
+function fileHandleFor(realPath, name) {
+  return {
+    kind: "file",
+    name,
+    async getFile() { return new File([fs.readFileSync(realPath)], name); },
+    async createWritable() {
+      const chunks = [];
+      return {
+        async write(contents) { chunks.push(Buffer.from(contents)); },
+        async close() { fs.writeFileSync(realPath, Buffer.concat(chunks)); },
+      };
+    },
+  };
+}
+
+function parseArgs(argv) {
+  const args = { folder: null, title: null, file: null };
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--title") args.title = argv[++i];
+    else if (argv[i] === "--file") args.file = argv[++i];
+    else if (!args.folder) args.folder = argv[i];
+    else throw new Error(`Unexpected argument "${argv[i]}"`);
+  }
+  return args;
 }
 
 async function main() {
-  const folderArg = process.argv[2];
-  if (!folderArg) {
-    console.error("Usage: node src/plugins/chordpro-input/build-songbook.mjs <folder>");
+  const args = parseArgs(process.argv.slice(2));
+  if (!args.folder) {
+    console.error('Usage: node src/chordpro-input/build-songbook.mjs <folder> [--title "..."] [--file name.html]');
     process.exitCode = 1;
     return;
   }
-  const root = path.resolve(folderArg);
+  const root = path.resolve(args.folder);
   if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
     console.error(`Not a folder: ${root}`);
     process.exitCode = 1;
     return;
   }
 
-  const result = await buildCrateFromChordProFolder(wrapDirRead(root, path.basename(root)), {}, (msg) => console.log(msg));
-  if (!result) {
-    console.error(`No song or setlist files found under ${root} — nothing to build.`);
+  const dirHandle = dirHandleFor(root);
+  const prior = await readJsonFromFolder(dirHandle, CRATE_FILE).catch(() => null);
+  const settings = readBookSettings(prior, path.basename(root));
+
+  let result;
+  try {
+    result = await buildSongbook(dirHandle, {
+      title: args.title ?? settings.title,
+      filename: args.file ?? settings.filename,
+      matchOverrides: prior ? extractPersistedSetlistMatches(prior) : {},
+      log: (msg) => console.log(msg),
+    });
+  } catch (e) {
+    console.error(e.message);
     process.exitCode = 1;
     return;
   }
-  const { crate, songCount, setlistCount, unresolvedCount, ambiguousCount } = result;
 
-  // crate.getJson() is the same plain graph object the browser app's own
-  // ro-crate-json-output plugin serializes (src/crate.js's crateToJsonString
-  // is a one-line JSON.stringify(crate.getJson(), null, 2) wrapper — not
-  // imported here, for exactly the self-containment reason in this file's
-  // own header comment) and the same shape renderSongbookHtml itself expects
-  // (it's what ends up read back out of ro-crate-metadata.json in a real
-  // app build — see songbook_html.js's own OUTPUT_WRITE hook).
-  const crateJson = crate.getJson();
-  fs.writeFileSync(path.join(root, CRATE_FILE), JSON.stringify(crateJson, null, 2));
-  fs.writeFileSync(path.join(root, OUTPUT_FILE), renderSongbookHtml(crateJson));
-
+  const { songCount, setlistCount, unresolvedCount, ambiguousCount, songbookFile } = result;
   console.log(
-    `Wrote ${CRATE_FILE} and ${OUTPUT_FILE} to ${root} ` +
+    `Wrote ${songbookFile} to ${root} ` +
       `(${songCount} song(s), ${setlistCount} setlist(s)` +
       (unresolvedCount ? `, ${unresolvedCount} unresolved setlist entr${unresolvedCount === 1 ? "y" : "ies"}` : "") +
       (ambiguousCount ? `, ${ambiguousCount} ambiguous setlist entr${ambiguousCount === 1 ? "y" : "ies"}` : "") +

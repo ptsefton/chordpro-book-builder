@@ -2,7 +2,7 @@
 // (see its own SPEC.md §3.1) rather than a local copy — the ported
 // metadata-extraction subset of chordprosite's Song.js. Kept here, not just
 // in chordprobook's own test suite, as a regression check on the dependency
-// from resources2crate's own side: {composer} extraction (an addition),
+// from this repo's own side: {composer} extraction (an addition),
 // {artist} kept separate from {subtitle}/{st} (chordprosite's own class
 // conflates all three into one field — another addition), first-wins on
 // every directive including {title}/{subtitle}/{artist} (chordprosite's own
@@ -56,7 +56,7 @@ const readFixture = (name) => readFileSync(path.join(fixturesDir, name), "utf8")
   assert.equal(song.transpose, "-3");
 }
 
-/* ---------- directives this plugin adds/relies on that no sample file exercises ---------- */
+/* ---------- directives this app adds/relies on that no sample file exercises ---------- */
 
 {
   const song = new ChordProSong("{title: Test Song}\n{capo: 3}\n{key: D}\n[D]Some [A]lyrics");
@@ -76,7 +76,7 @@ const readFixture = (name) => readFileSync(path.join(fixturesDir, name), "utf8")
   // Song.js — kept as its own field, distinct from {subtitle}/{st}, even
   // though the source directive text ("artist") is what chordprosite's own
   // class would have folded into the same field a {subtitle} directive
-  // uses. This plugin writes .artist to `performer` and .subtitle to
+  // uses. This app writes .artist to `performer` and .subtitle to
   // `subtitle` on the Song entity (chordpro_crate.js, SPEC.md §5/§7).
   const song = new ChordProSong("{title: Test Song}\n{artist: The Testers}\n{subtitle: Live at the Test Hall}");
   assert.equal(song.artist, "The Testers");
@@ -167,7 +167,7 @@ const readFixture = (name) => readFileSync(path.join(fixturesDir, name), "utf8")
 /* ---------- unrecognised directives don't break metadata parsing ---------- */
 
 {
-  // {start_of_chorus}/{comment} aren't in this plugin's trimmed directive
+  // {start_of_chorus}/{comment} aren't in this app's trimmed directive
   // set (SPEC.md's DIRECTIVE_NAMES comment) — they fall through as
   // unrecognised lines rather than crashing or being mistaken for a chord line.
   const song = new ChordProSong("{title: Chorus test}\n{c: Chorus}\n{soc}\n[C]La la la\n{eoc}");

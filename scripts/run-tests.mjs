@@ -1,7 +1,7 @@
 // Runs every test-*.mjs found anywhere in the repo and exits non-zero if any
 // failed.
 //
-// Not a test framework (see ARCHITECTURE §9.2) — just a loop. Each test is a
+// Not a test framework — just a loop. Each test is a
 // plain script that throws on a failed assertion, so "did it pass" is exactly
 // "did it exit 0". Every test runs even after one fails, so a change that
 // breaks several shows all of them in one go rather than one per re-run.
@@ -9,9 +9,8 @@
 // Tests are discovered rather than listed, so a new test-*.mjs is picked up
 // without also having to be registered here — the old failure mode where the
 // wired-up suite and the actual suite drifted apart. Discovery is recursive
-// (not just tests/) because a plugin's own tests can live colocated with its
-// code instead — see src/plugins/chordpro-input/ — so that folder stays
-// self-contained if it's ever extracted into its own repo. Each test runs
+// (not just tests/) because tests live colocated with the code they test,
+// in src/chordpro-input/. Each test runs
 // with its own containing directory as cwd, so a test that reads a fixture
 // via a relative path next to itself behaves the same regardless of where in
 // the tree it lives.

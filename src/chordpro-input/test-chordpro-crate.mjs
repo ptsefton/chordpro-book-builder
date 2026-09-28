@@ -1,6 +1,6 @@
 // Integration test for buildCrateFromChordProFolder
-// (src/plugins/chordpro-input/chordpro_crate.js), exercised against the real
-// chordprosite sample files under this plugin's own samples/ rather than
+// (src/chordpro-input/chordpro_crate.js), exercised against the real
+// chordprosite sample files under this repo's own samples/ rather than
 // synthetic fixtures — see SPEC.md for the design this implements.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -17,9 +17,8 @@ const fixturesDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "sam
 
 /* ---------- an in-memory stand-in for FileSystemDirectoryHandle ---------- */
 // Only what chordpro_crate.js's folder walk actually calls: values() for
-// directory listing and getFile() on a file handle — no writing, unlike
-// docx_crate.js's mock in test-docx-source-documents.mjs, since this plugin
-// never writes files of its own (SPEC.md §5, "No file payload").
+// directory listing and getFile() on a file handle — no writing, since the
+// folder walk never writes (test-songbook-build.mjs has a read/write one).
 function toNode(value) {
   if (value instanceof Uint8Array) return { kind: "file", bytes: value };
   const children = new Map();
@@ -79,8 +78,7 @@ assert.equal(result.ambiguousCount, 0);
 
 // .toJSON() (crate.graph is the live, linked proxy — its array:true option
 // means every property reads back as an array; .toJSON() is the plain JSON-LD
-// shape actually written to ro-crate-metadata.json, and what
-// test-docx-source-documents.mjs also asserts against for the same reason).
+// shape actually written to ro-crate-metadata.json).
 const graph = result.crate.toJSON()["@graph"];
 const byId = new Map(graph.map((entity) => [entity["@id"], entity]));
 const byType = (type) => graph.filter((entity) => {

@@ -5,8 +5,7 @@
 // (the entity shapes and rdf:Property definitions below mirror that section
 // exactly).
 //
-// Analogous in role to docx-input's docx_crate.js: this file owns the
-// folder walk and RO-Crate entity assembly. All ChordPro/Markdown parsing
+// This file owns the folder walk and RO-Crate entity assembly. All ChordPro/Markdown parsing
 // itself lives in the chordprobook package (see SPEC.md §1/§8) and is not
 // duplicated here.
 
@@ -17,16 +16,12 @@ import { toArray, firstValue } from "./crate_index.js";
 export const DEFAULT_SONG_EXTENSIONS = [".pro", ".cho", ".cho.txt"];
 export const DEFAULT_SETLIST_SUFFIX = ".setlist.md";
 
-// A local copy of chaos2crate's own GENERATED_FILENAMES/CONTROL_FILENAMES
-// (src/crate.js there), not an import — this repo has no import dependency
-// on chaos2crate's source at all (same discipline c2c-plugins' own plugins
-// follow). Skipped during this plugin's own folder walk (isIgnoredName,
-// below) so a rebuild never re-ingests a previous build's own output as
-// song/setlist content. Plus songbook.html/ro-crate-preview.html, which
-// chaos2crate's own list has no reason to know about — those are this
-// plugin's own output (songbook_html.js), not chaos2crate core's. Exported
-// so fix_st_directive_ui.js's own folder walk shares exactly this same set,
-// rather than keeping a second copy.
+// Files this app writes (or that other RO-Crate tools write) into the
+// folder — skipped during the folder walk (isIgnoredName, below) so a
+// rebuild never re-ingests a previous build's own output. A songbook saved
+// under a custom filename needs no entry here: only song and setlist
+// extensions are ever harvested. Exported so fix_st_directive_ui.js's own
+// folder walk, and songbook_build.js's filename check, share this same set.
 export const GENERATED_FILENAMES = new Set([
   "ro-crate-metadata.json", "ro-crate-metadata.jsonld", "ro-crate-metadata.xlsx", "ro-crate-preview.html",
   "ro-crate-preview_html",
@@ -35,11 +30,9 @@ export const GENERATED_FILENAMES = new Set([
 ]);
 export const CONTROL_FILENAMES = new Set(["config.json"]);
 
-// rdf:Property definitions for the custom fields this plugin writes (SPEC.md
+// rdf:Property definitions for the custom fields this app writes (SPEC.md
 // §7) — added once, and only for whichever of these keys actually appear
-// somewhere in the finished graph (see addUsedPropertyDefinitions), the same
-// "only when it's actually there" discipline the austlang plugin follows for
-// its own custom fields. This list is deliberately short: title/key/composer/
+// somewhere in the finished graph (see addUsedPropertyDefinitions). This list is deliberately short: title/key/composer/
 // performer/subtitle/a note's own text/the entry-to-song link/the
 // setlist-to-entry link/which set an entry belongs to all reuse standard
 // schema.org properties instead (name, musicalKey, composer, performer,
@@ -47,7 +40,7 @@ export const CONTROL_FILENAMES = new Set(["config.json"]);
 // expresses a set's own membership in its setlist, and an entry's in its
 // set, structurally, rather than as a flat string property — SPEC.md §7).
 // What's left has no schema.org equivalent at all: a capo/transpose value,
-// and this plugin's own match-confidence bookkeeping.
+// and this app's own match-confidence bookkeeping.
 const PROPERTY_DEFINITIONS = {
   "custom:capo": { "@id": "arcp://name,custom/terms#capo", "@type": "rdf:Property", name: "Capo" },
   "custom:transpose": { "@id": "arcp://name,custom/terms#transpose", "@type": "rdf:Property", name: "Transpose" },
@@ -126,12 +119,18 @@ async function harvestFilesAndTitles(rootHandle, opts = {}) {
   return { songExtensions, setlistSuffix, songFiles, setlistFiles, songs, songTexts };
 }
 
+// How many songs and setlists a folder holds — what the app shows as soon
+// as a folder is picked, before anything is built. Same walk as a real
+// build, so the two can never disagree.
+export async function scanFolder(rootHandle, opts = {}) {
+  const { songFiles, setlistFiles } = await harvestFilesAndTitles(rootHandle, opts);
+  return { songCount: songFiles.length, setlistCount: setlistFiles.length };
+}
+
 /* ---------- Song entities (SPEC.md §5) ---------- */
 
 // Reads whichever ro-crate-metadata.json is already sitting in `rootHandle`,
-// if any — a plain, best-effort read, independent of chaos2crate's own
-// existing_crate_prefill.js (SPEC.md §17's own note on why the two don't
-// share this read: that plugin's own ctx never reaches buildCrate(ctx)'s).
+// if any — a plain, best-effort read.
 // Anything short of "valid JSON with a @graph" (missing file, corrupt JSON,
 // an unexpected shape) is treated as "nothing to reuse" rather than an
 // error — a first-ever build of a fresh folder hits this on every song.
@@ -195,7 +194,7 @@ function buildSongEntity(relativePath, rawText, songExtensions, persistedKeys = 
     }
   }
   // schema.org's `composer`/`performer` both expect a Person/Organization
-  // reference; this plugin writes the ChordPro directive's free text
+  // reference; this app writes the ChordPro directive's free text
   // directly instead of minting a Person entity for either (SPEC.md §5) —
   // a deliberate, documented simplification, not an oversight.
   if (parsed.composer) entity.composer = parsed.composer;
@@ -228,7 +227,7 @@ function buildSongEntity(relativePath, rawText, songExtensions, persistedKeys = 
 // they're directly adjacent (nothing else could tell them apart from a
 // flat list of entries alone without also threading Setlist.js's own line
 // position through); a real setlist repeating a set name for two genuinely
-// separate sections is an edge case this plugin doesn't try to disambiguate
+// separate sections is an edge case this app doesn't try to disambiguate
 // further. Returns an array of either `{ kind: "entry", entry, index }` or
 // `{ kind: "set", setName, entries: [{ entry, index }, ...] }`, in file
 // order.
@@ -417,7 +416,23 @@ export function extractReviewableSetlistMatches(crateJson) {
   return results;
 }
 
-// A lightweight pre-scan for the resources2crate app's own review step
+// Every setlist entry that matched no song at all (custom:matchStatus
+// "unresolved"), with the setlist (and set) it came from — shown after a
+// build so a misspelt heading doesn't go unnoticed. Nothing to choose here,
+// unlike an ambiguous match: the fix is in the setlist or song file itself.
+export function extractUnresolvedSetlistEntries(crateJson) {
+  const graph = Array.isArray(crateJson && crateJson["@graph"]) ? crateJson["@graph"] : [];
+  const context = buildEntryContextMap(graph);
+  return graph
+    .filter((entity) => firstValue(entity, "custom:matchStatus") === "unresolved")
+    .map((entity) => {
+      const id = String(entity["@id"]);
+      const entryContext = context.get(id) || { setlistPath: id.split("#")[0], setName: "" };
+      return { entryId: id, rawHeading: firstValue(entity, "name") || "", ...entryContext };
+    });
+}
+
+// A lightweight pre-scan for the app's own review step
 // (SPEC.md §16), run before the real build: which setlist entries would
 // come out "ambiguous", and what their path-proximity-ranked candidates
 // would be. Shares harvestFilesAndTitles with buildCrateFromChordProFolder
@@ -494,7 +509,7 @@ function buildSetlistEntities(relativePath, rawText, songs, setlistSuffix, overr
     // SPEC.md §16 — path-proximity replaces matchEntryToSong's own
     // placeholder first-candidate pick for an ambiguous match, unless a
     // human has already resolved this exact ambiguity (by content, not
-    // @id position — matchKey's own comment) via the resources2crate
+    // @id position — matchKey's own comment) via the app's
     // app's own review step, in which case that choice wins instead.
     let resolvedSong = match.song;
     let candidates = match.candidates;
@@ -558,11 +573,11 @@ function buildSetlistEntities(relativePath, rawText, songs, setlistSuffix, overr
 // Every canonical song carrying a custom:keyStatus at all — "guessed" and
 // "confirmed" alike, so a prior review is always revisitable, not only a
 // still-unreviewed guess (same convention as extractReviewableSetlistMatches,
-// above) — for the "Review guessed keys…" tile, read straight from a crate
+// above) — for the "Review guessed keys…" button, read straight from a crate
 // already on disk. Candidates are re-derived on the spot from the entity's
 // own `text` (its full, verbatim source — SPEC.md §5/§7) via chordprobook's
 // own ChordProSong/guessKey, rather than trusting anything persisted in the
-// crate itself: this plugin doesn't persist the candidate breakdown at all
+// crate itself: this app doesn't persist the candidate breakdown at all
 // (SPEC.md §17's own "Deferred" note), and re-deriving is cheap regardless.
 export function extractReviewableSongKeys(crateJson) {
   const graph = Array.isArray(crateJson && crateJson["@graph"]) ? crateJson["@graph"] : [];
@@ -581,7 +596,7 @@ export function extractReviewableSongKeys(crateJson) {
       currentKey: firstValue(entity, "musicalKey") || "",
       keyStatus,
       // The song's own chords, first-occurrence order (chordprobook's own
-      // SPEC.md §3.1) — shown alongside the candidates in the review tile
+      // SPEC.md §3.1) — shown alongside the candidates in the review modal
       // so a reviewer has something to actually judge a guess against,
       // rather than choosing blind between bare key names.
       chordsUsed: parsed.chordsUsed,
@@ -622,7 +637,7 @@ export function detectCapoKeyMismatch(entity) {
 
 // Same read-straight-from-the-on-disk-crate convention as
 // extractReviewableSongKeys, above — for the "Normalize capos and keys…"
-// tile (SPEC.md §18). Only canonical MusicComposition song entities are
+// button (SPEC.md §18). Only canonical MusicComposition song entities are
 // candidates (never a setlist entry's own capo override), same filter
 // extractReviewableSongKeys applies.
 export function extractCapoKeyMismatches(crateJson) {
@@ -699,11 +714,10 @@ function addUsedPropertyDefinitions(crate) {
 
 /* ---------- root dataset ---------- */
 
-// Deliberately minimal — just enough for a valid, describable root dataset.
-// docx-input's validateAndNormalizeConfig also handles creators and a
-// metadata licence; nothing in this plugin's scope (SPEC.md §2) currently
-// needs that, so it isn't ported speculatively. Add it the same way docx-
-// input does if a real build turns out to need it.
+// Deliberately minimal — just enough for a valid, describable root dataset:
+// the book title as `name`, a description and a date. Creators and a
+// metadata licence could be added here if a real build turns out to need
+// them.
 function applyRootDataset(crate, config) {
   const rootDataset = (config && typeof config.rootDataset === "object" && config.rootDataset) || {};
 
@@ -722,15 +736,15 @@ function applyRootDataset(crate, config) {
 /* ---------- top-level orchestration ---------- */
 
 // Builds an RO-Crate from `rootHandle` (a FileSystemDirectoryHandle scanned
-// recursively for song and setlist files — SPEC.md §4). `config` is the raw
-// rootDataset config, same shape docx-input's buildCrateFromDocxFolder
-// takes. `onProgress(message)` receives human-readable progress/warning
-// lines, mirroring docx-input's own convention (severity is conveyed by the
-// message text — a "Warning:" prefix — not by a separate argument).
+// recursively for song and setlist files — SPEC.md §4). `config` is
+// { rootDataset: { name, description, datePublished } }, all optional.
+// `onProgress(message)` receives human-readable progress/warning lines
+// (severity is conveyed by the message text — a "Warning:" prefix — not by
+// a separate argument).
 // `opts.songExtensions` / `opts.setlistSuffix` override the defaults
 // (SPEC.md §4's configurable extensions). `opts.matchOverrides` is a plain
 // object, matchKey(...) -> chosen song @id, for any ambiguous entry the
-// resources2crate app has already resolved (a fresh pick, or one persisted
+// app has already resolved (a fresh pick, or one persisted
 // from an earlier build — SPEC.md §16); anything not in this object falls
 // back to the path-proximity default.
 //

@@ -2,49 +2,23 @@
 // both the song data and the code that displays it, rendered client-side,
 // not chordprosite's own implementation of that shape (concatenating its
 // own source files as text; see chordprobook's own SPEC.md §1) — from the
-// RO-Crate the chordpro-input plugin already built. See SPEC.md's
+// RO-Crate chordpro_crate.js already built. See SPEC.md's
 // "Songbook HTML output" and "UI" sections for the incremental plan this
 // is a step of and for the navigation design this step adds: a clickable
 // song list, a song view rendered with chordprobook's own renderSong(), a
 // menu bar back to the list, and next/previous buttons at opposite screen
 // edges.
 //
-// A separate plugin object from chordpro-input's own `plugin` (index.js) —
-// deliberately: that one is registered as the app's chosen input mode
-// (mutually exclusive, dispatched on ctx.options.inputMode); this one is
-// registered as an ordinary additive plugin (every entry's hooks run),
-// tapping the "output:write" hook alongside whatever other output plugins
-// a given build has selected (e.g. c2c-plugins' own ro-crate-json-output).
-// Colocated in this same folder rather than a separate plugin directory
-// since it only makes sense for, and only ever runs after, a chordpro-mode
-// build.
+// The page is written by songbook_build.js (writeOutputs), which also
+// writes ro-crate-preview.html as a plain redirect to it (renderRedirectHtml,
+// below) — the songbook *is* this crate's human-readable preview.
 //
-// Also writes ro-crate-preview.html, a tiny redirect page pointing at the
-// songbook it just wrote (see the plugin object's own comment at the
-// bottom of this file) — chaos2crate's main.js always looks for that exact
-// filename to enable its "Show" button, and c2c-plugins' own
-// ro-crate-html-output plugin (which used to write it, back when this
-// plugin lived inside resources2crate) has no chordpro-specific redirect
-// logic of its own any more. Since this app is configured to run with only
-// ro-crate-json-output and this chordpro plugin active — no
-// ro-crate-html-output at all — there's no risk of the two colliding over
-// that filename; this plugin now owns it outright for a chordpro-mode build.
-//
-// Reads the ro-crate-metadata.json this same build already wrote (via
-// crate_index.js, not the `ro-crate` library — see that file's own header)
-// rather than reaching into ctx.crate directly: a future standalone
-// site-compiler will only ever have that written file to work from, not a
-// live crate object, so building this against the same interface now keeps
-// this code close to what that compiler will actually need. crate_index.js
-// is used here only to count songs for the build log — the page's own
-// client-side rendering (below) does not use it.
-//
-// createPlugin(deps) destructures writeFile/readJsonFromFolder/fileExists
-// from chaos2crate's own shared deps object (src/plugins/deps.js there)
-// rather than importing them directly — this repo has no import dependency
-// on chaos2crate's source at all, the same discipline c2c-plugins' own
-// plugins follow (see that repo's README).
-import { buildCrateIndex, entitiesOfType } from "./crate_index.js";
+// renderSongbookHtml takes the plain ro-crate-metadata.json-shaped graph
+// (via crate_index.js, not the `ro-crate` library — see that file's own
+// header), never a live crate object, so the same function serves the app,
+// the CLI (build-songbook.mjs) and any tool that patches a crate already on
+// disk and re-renders it.
+import { buildCrateIndex, firstValue } from "./crate_index.js";
 // Imported under different names from what initSongbookApp's own body uses
 // (CHORDPROBOOK_INSTRUMENTS_DATA/CHORDPROBOOK_CHORD_DATA, bare, further
 // down) — deliberately. Those two data constants, like ChordProSong/
@@ -68,52 +42,36 @@ import {
   CHORDPROBOOK_CHORD_DATA as CHORD_DATA_FOR_EMBED,
 } from "./generated/chordprobook_browser_bundle.js";
 
-let writeFile, readJsonFromFolder, fileExists;
-export function createPlugin(deps) {
-  ({ writeFile, readJsonFromFolder, fileExists } = deps);
-  return songbookHtmlPlugin;
+const DEFAULT_BOOK_TITLE = "Songbook";
+
+// The root dataset's own name — the book title chosen in the app — or
+// "Songbook" for a crate that has none.
+export function bookTitleFromCrate(crateJson) {
+  const index = buildCrateIndex(crateJson);
+  const descriptor = index.byId.get("ro-crate-metadata.json");
+  const rootRef = descriptor ? [].concat(descriptor.about || [])[0] : null;
+  const root = index.byId.get((rootRef && rootRef["@id"]) || "./");
+  const name = root ? String(firstValue(root, "name", "")).trim() : "";
+  return name || DEFAULT_BOOK_TITLE;
 }
 
-const CRATE_FILE = "ro-crate-metadata.json";
-export const OUTPUT_FILE = "songbook.html";
-// chaos2crate's own main.js hardcodes this exact filename to decide whether
-// its "Show" button is enabled (fileExists check, not configurable) — see
-// this file's own header comment above for why this plugin, not
-// ro-crate-html-output, is the one writing it for a chordpro-mode build.
-const REDIRECT_FILE = "ro-crate-preview.html";
+function escapeHtml(text) {
+  return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
 
-// A plain <meta http-equiv="refresh"> (or a relative-URL navigation of any
-// kind) doesn't work when this page is opened through chaos2crate's own
-// "Show" preview popup: main.js's own openPageInPreview() materializes a
-// crate-generated page as a blob: URL, not the real file, so a relative
-// navigation from inside it resolves against the blob's own opaque origin
-// and fails to find the real songbook.html next to it. chaos2crate's own
-// preview pages solve this by posting a { source: "r2c-preview", page }
-// message to window.opener instead (PREVIEW_NAV_SCRIPT, main.js) — the
-// opener re-reads the real file off the real dirHandle and swaps the
-// popup's content for a fresh blob: URL itself, sidestepping normal
-// navigation entirely. This redirect page does the same thing, on load
-// rather than on click: post that same message when there's a window.opener
-// to receive it, falling back to a plain relative navigation only when
-// there isn't one (e.g. this file opened directly, by double-clicking it
-// outside any app, as a real file:// URL with no popup involved at all).
-function renderRedirectHtml(targetFile) {
-  const targetJson = JSON.stringify(targetFile);
+// ro-crate-preview.html: the conventional RO-Crate entry point, pointing
+// anyone who opens it at the songbook page next to it.
+export function renderRedirectHtml(targetFile) {
+  const href = escapeHtml(encodeURI(targetFile));
   return `<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
+<meta http-equiv="refresh" content="0; url=${href}">
 <title>Redirecting…</title>
 </head>
 <body>
-<p>Redirecting to <a href="${targetFile}">${targetFile}</a>…</p>
-<script>
-if (window.opener) {
-  window.opener.postMessage({ source: "r2c-preview", page: ${targetJson} }, "*");
-} else {
-  window.location.replace(${targetJson});
-}
-</script>
+<p>Redirecting to <a href="${href}">${escapeHtml(targetFile)}</a>…</p>
 </body>
 </html>
 `;
@@ -139,10 +97,10 @@ if (window.opener) {
 // entry regardless of resolution, and never onto a canonical Song, so it's
 // a complete signal on its own for the one case specializationOf can't
 // cover — not a fallback to id-sniffing, a second, equally real property.
-// Used only for the build-log song count (see the module comment above) —
-// the embedded client-side app (below) re-expresses this same test itself,
+// Used only for the build-log song count (songbook_build.js) — the
+// embedded client-side app (below) re-expresses this same test itself,
 // inline, since it cannot import this function into the page.
-function isCanonicalSong(entity) {
+export function isCanonicalSong(entity) {
   return !("specializationOf" in entity) && !("custom:matchStatus" in entity);
 }
 
@@ -186,6 +144,17 @@ export function initSongbookApp(document, window) {
   const crate = JSON.parse(document.getElementById("crate-data").textContent);
   const graph = Array.isArray(crate["@graph"]) ? crate["@graph"] : [];
   const asArray = (value) => (value === undefined || value === null ? [] : Array.isArray(value) ? value : [value]);
+
+  // Same lookup as bookTitleFromCrate, re-expressed inline for the same
+  // reason as isCanonicalSong's inline copy: this function's source is all
+  // the page gets.
+  const bookTitle = (() => {
+    const descriptor = graph.find((e) => e && e["@id"] === "ro-crate-metadata.json");
+    const rootRef = descriptor ? asArray(descriptor.about)[0] : null;
+    const rootId = (rootRef && rootRef["@id"]) || "./";
+    const root = graph.find((e) => e && e["@id"] === rootId);
+    return (root && String(asArray(root.name)[0] || "").trim()) || "Songbook";
+  })();
 
   // A minimal, dependency-free Markdown-ish renderer for setlist/set notes
   // (SPEC.md §6/§6.2) — these can be real Markdown (chordprosite's own
@@ -1509,7 +1478,7 @@ export function initSongbookApp(document, window) {
   }
 
   // titleText goes through textContent, not an HTML string — unlike
-  // "Songbook" (showPrintBook's own title, fixed at build time), a
+  // the book title (showPrintBook's own title, fixed at build time), a
   // setlist's own name (showPrintSetlist) is user content from the setlist
   // markdown, and this is the one caller that has to handle both without
   // knowing which it was given.
@@ -1640,7 +1609,7 @@ export function initSongbookApp(document, window) {
       return { name: song.name, pageNumber: entryPageNumber };
     });
 
-    const frontPages = includeToc ? buildFrontMatterPages("Songbook", tocEntries) : [];
+    const frontPages = includeToc ? buildFrontMatterPages(bookTitle, tocEntries) : [];
 
     printContent.replaceChildren(...frontPages, ...songPages);
     enterPrintView();
@@ -2472,24 +2441,35 @@ export function initSongbookApp(document, window) {
   showList();
 }
 
+// The source text embedded as the page's app. In Node (the CLI, the tests)
+// this is simply initSongbookApp's own source. In the browser app, Vite's
+// songbookAppSource plugin (vite.config.js) swaps this expression for a
+// string literal of that same Node-side source at build time — so the
+// bundler's own renaming and comment-stripping never reach the page, and a
+// songbook made in the browser is byte-for-byte what the CLI would write.
+const SONGBOOK_APP_SOURCE = initSongbookApp.toString();
+
 export function renderSongbookHtml(crateJson) {
+  const bookTitle = escapeHtml(bookTitleFromCrate(crateJson));
   const embeddedJson = escapeForInlineScript(JSON.stringify(crateJson, null, 2));
 
   return `<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
-<title>Songbook</title>
+<title>${bookTitle}</title>
 <style>
 /* High contrast, on PT's explicit instruction: no filled panels behind any
    text (no --surface-alt tint anywhere — chorus/bridge and tab blocks are
    marked by a rule/border, never a background fill), the page reduced to
    plain black-on-white (white-on-black under prefers-color-scheme: dark),
-   and --chord left constant across both themes rather than following
-   --ink/--bg, so it stays the one bright, unmistakable colour on the page
-   — reserved for chord names and nothing else, which is why every other
-   control below uses --ink/--accent (effectively black/white) rather than
-   reaching for colour of its own.
+   and --chord kept independent of --ink/--bg, so it stays the one bright,
+   unmistakable colour on the page — reserved for chord names and nothing
+   else, which is why every other control below uses --ink/--accent
+   (effectively black/white) rather than reaching for colour of its own.
+   Red on white; yellow on black (PT: red is hard to read on a dark
+   screen) — but only on screen, so a page printed from a dark-mode
+   browser never puts yellow chords on white paper.
 
    .hidden still carries !important for the reason recorded in
    initSongbookApp's own setHidden() — an ID selector elsewhere in this
@@ -2514,6 +2494,9 @@ export function renderSongbookHtml(crateJson) {
     --accent-contrast: #000000;
     --border: #ffffff;
   }
+}
+@media screen and (prefers-color-scheme: dark) {
+  :root { --chord: #ffd60a; }
 }
 * { box-sizing: border-box; }
 body {
@@ -3234,7 +3217,7 @@ a.setlist-entry-name:hover { text-decoration: underline; }
 </header>
 
 <section id="list-view">
-<h1>Songs</h1>
+<h1>${bookTitle}</h1>
 <div id="list-view-buttons">
 <button id="print-book-button" type="button">Print this songbook</button>
 <button id="view-setlists-button" type="button" class="hidden">Setlists</button>
@@ -3298,50 +3281,9 @@ var CHORDPROBOOK_INSTRUMENTS_DATA = ${JSON.stringify(INSTRUMENTS_DATA_FOR_EMBED)
 var CHORDPROBOOK_CHORD_DATA = ${JSON.stringify(CHORD_DATA_FOR_EMBED)};
 </script>
 <script>
-(${initSongbookApp.toString()})(document, window);
+(${SONGBOOK_APP_SOURCE})(document, window);
 </script>
 </body>
 </html>
 `;
 }
-
-// Hook name is the literal string "output:write" — not an imported HOOKS
-// constant — so this repo has zero import dependency on chaos2crate's own
-// source (see this file's own header comment, and c2c-plugins' README for
-// why every plugin follows this rule).
-const songbookHtmlPlugin = {
-  name: "chordpro-songbook-html-output",
-  hooks: {
-    "output:write": async (ctx) => {
-      if (ctx.options.inputMode !== "chordpro") return;
-
-      if (!ctx.options.overwrite && (await fileExists(ctx.dirHandle, OUTPUT_FILE))) {
-        ctx.log(`Songbook HTML: ${OUTPUT_FILE} exists and overwrite is off — skipped.`, "warn");
-        return;
-      }
-
-      const crateJson = await readJsonFromFolder(ctx.dirHandle, CRATE_FILE);
-      if (!crateJson) {
-        ctx.log(`Songbook HTML: ${CRATE_FILE} not found — skipped.`, "warn");
-        return;
-      }
-
-      const index = buildCrateIndex(crateJson);
-      const songCount = entitiesOfType(index, "MusicComposition").filter(isCanonicalSong).length;
-      await writeFile(ctx.dirHandle, OUTPUT_FILE, renderSongbookHtml(crateJson));
-      ctx.log(`Songbook HTML: wrote ${OUTPUT_FILE} (${songCount} song(s); data, chordprobook, and the app are all embedded).`, "ok");
-
-      // Own redirect write, guarded independently of the songbook write
-      // above (via its own overwrite/exists check) rather than being
-      // unconditional — a build re-run with overwrite off should leave an
-      // existing hand-edited or differently-pointed ro-crate-preview.html
-      // alone, the same courtesy the songbook write itself gets.
-      if (!ctx.options.overwrite && (await fileExists(ctx.dirHandle, REDIRECT_FILE))) {
-        ctx.log(`Songbook HTML: ${REDIRECT_FILE} exists and overwrite is off — skipped.`, "warn");
-        return;
-      }
-      await writeFile(ctx.dirHandle, REDIRECT_FILE, renderRedirectHtml(OUTPUT_FILE));
-      ctx.log(`Songbook HTML: wrote ${REDIRECT_FILE} (redirects to ${OUTPUT_FILE}).`, "ok");
-    },
-  },
-};

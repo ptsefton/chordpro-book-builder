@@ -119,7 +119,7 @@ export function renderMarkdown(markdown) {
 // assets, matching this repo's other generated pages (songbook.html,
 // build-songbook.mjs's output). `title` comes from the markdown's own first
 // heading when present, falling back to the site name.
-export function renderMarkdownPage(markdown, { fallbackTitle = "c2c-chordpro-plugin" } = {}) {
+export function renderMarkdownPage(markdown, { fallbackTitle = "ChordPro Songbook Builder" } = {}) {
   const titleMatch = markdown.match(/^#\s+(.*)$/m);
   const title = titleMatch ? titleMatch[1].trim() : fallbackTitle;
   const body = renderMarkdown(markdown);
