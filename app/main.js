@@ -298,7 +298,20 @@ async function openSongbook() {
 
 /* ---------- start ---------- */
 
+// The published site, for the header links when this page has been saved
+// and opened from disk — its relative links would point nowhere there.
+const SITE_URL = "https://ptsefton.com/chordpro-book-builder/build/";
+
+function adjustForSavedCopy() {
+  if (location.protocol !== "file:") return;
+  show($("download-app"), false); // this already is the offline copy
+  for (const link of document.querySelectorAll(".site-header nav a[href]")) {
+    link.href = new URL(link.getAttribute("href"), SITE_URL).href;
+  }
+}
+
 async function start() {
+  adjustForSavedCopy();
   if (!("showDirectoryPicker" in window)) {
     show($("unsupported"));
     show($("step-folder"), false);

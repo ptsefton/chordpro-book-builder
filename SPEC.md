@@ -67,7 +67,10 @@ songs into an already-open page; exporting the crate as a downloadable RO-Crate 
 
 The app is a single page, `app/index.html`, driven by `app/main.js`, which is only the page
 around the build: everything that actually builds or patches a songbook lives in
-`src/songbook/`. Supporting modules:
+`src/songbook/`. The build inlines all of it into one self-contained HTML file
+(DEPLOY-SPEC.md §4.3), so the app works offline once saved. The page's "Download for offline
+use" link saves that file. When opened from `file://`, the link is hidden and the header links
+point at the published site. Supporting modules:
 
 - `app/modal.js` — `openModal({ title, modalClassName, onDismiss, render(body, close) })`, a
   minimal `<dialog>`-based shell. It resolves with whatever the tool passes to `close(value)`;
@@ -434,7 +437,8 @@ app/                           the browser app (§3) — Vite root
                                review tools use)
   modal.js                     <dialog>-based openModal()
   folder_store.js              remembers the last folder in IndexedDB ("Reopen …")
-vite.config.js                 Vite config, including the songbookAppSource transform (§10)
+vite.config.js                 Vite config: the songbookAppSource transform (§10) and single-file
+                               inlining (DEPLOY-SPEC.md §4.3)
 SPEC.md                        this document
 src/songbook/
   songbook_build.js            build orchestration: buildSongbook, writeOutputs, title/filename

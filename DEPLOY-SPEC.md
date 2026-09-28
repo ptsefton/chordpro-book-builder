@@ -31,7 +31,7 @@ commit is bundled into the app by Vite and embedded in every songbook, via the c
 | `deploy.config.json` | site layout (§3) |
 | `scripts/build-site.mjs` | the build (§4) |
 | `scripts/render-markdown.mjs` | the landing and docs page Markdown renderer |
-| `vite.config.js` | the app build, including the `songbookAppSource` transform (§4.3) |
+| `vite.config.js` | the app build, including the `songbookAppSource` and `inlineIntoHtml` plugins (§4.3) |
 | `index.md`, `docs/chordpro-format.md` | landing page and docs page sources |
 | `.github/workflows/pages.yml` | CI (§5) |
 
@@ -82,8 +82,15 @@ copy. A difference means the committed bundle is stale. That's a warning, or an 
 ### 4.3 The app
 
 `vite build` using `vite.config.js`, into `site/<appPath>/`. This runs first because Vite empties
-its output directory, which is the site root when `appPath` is empty. `base: "./"` keeps asset
-paths relative, so the app works from any subpath.
+its output directory, which is the site root when `appPath` is empty.
+
+The output is a single, self-contained `index.html`. `vite.config.js`'s `inlineIntoHtml` plugin
+folds the bundled JS and CSS into the page and drops the `assets/` files, so the app can be saved
+as one file and opened offline from `file://`. The app's own "Download for offline use" link
+downloads exactly that file. The plugin fails the build if the JS contains `</script` or `<!--`
+(either would break an inline script), or if it finds an output file it doesn't know how to
+inline. The only thing a saved copy can't reach is the site's other pages. When opened from
+`file://`, the app points its header links at the published site instead.
 
 `vite.config.js`'s `songbookAppSource` plugin matters for correctness, not just size.
 `songbook_html.js` embeds `initSongbookApp` in every songbook as source text. Left alone, that

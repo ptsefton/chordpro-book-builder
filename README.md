@@ -7,6 +7,10 @@ list, transposition, chord diagrams, setlists, print modes) that needs no server
 **Use it:** <https://ptsefton.com/chordpro-book-builder/build/>. Needs a desktop Chrome or Edge,
 because it reads and writes a folder on your computer (the File System Access API).
 
+**Offline:** the app is one self-contained HTML file. Use the "Download for offline use" link at
+the top of the page, then open the saved file in Chrome or Edge. It works without an internet
+connection.
+
 1. **Choose your song folder.** Songs are `.cho`, `.pro` or `.cho.txt`; setlists are
    `.setlist.md`; subfolders are included.
 2. **Name your songbook:** a title, and the file name to save it as. Both are remembered for next
