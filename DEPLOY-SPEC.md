@@ -72,11 +72,13 @@ In order:
 
 `npm test`, unless `--skip-tests`.
 
-### 4.2 Bundle check
+### 4.2 Generated-file check
 
-`scripts/bundle-chordprobook-for-browser.mjs --out .site-build/…` regenerates the chordprobook
-bundle from the installed (lockfile-pinned) chordprobook and compares it with the committed
-copy. A difference means the committed bundle is stale. That's a warning, or an error under
+Every songbook embeds two committed, generated files: the chordprobook bundle
+(`scripts/bundle-chordprobook-for-browser.mjs`) and the text font
+(`scripts/embed-fonts.mjs`, from `@fontsource/atkinson-hyperlegible-next`). Each script is
+re-run with `--out .site-build/…` against the installed (lockfile-pinned) packages and the result
+compared with the committed copy. A difference means the committed file is stale. That's a warning, or an error under
 `--strict` (which CI uses).
 
 ### 4.3 The app

@@ -98,21 +98,28 @@ function loadConfig() {
 
 // ---- the embedded chordprobook bundle ------------------------------------------
 
-// Every songbook embeds generated/chordprobook_browser_bundle.js, which is
-// committed. Regenerate it from the installed (lockfile-pinned) chordprobook
-// into the work dir and compare, so a stale committed copy is caught here
-// rather than shipped.
-function verifyBundle(workDir, strict) {
-  const fresh = path.join(workDir, "chordprobook_browser_bundle.js");
-  run("node", [path.join(repoRoot, "scripts", "bundle-chordprobook-for-browser.mjs"), "--out", fresh]);
-  const committed = path.join(repoRoot, "src", "songbook", "generated", "chordprobook_browser_bundle.js");
-  if (readFileSync(fresh, "utf8") !== readFileSync(committed, "utf8")) {
-    const msg = "the committed chordprobook_browser_bundle.js is stale relative to the installed chordprobook — "
-      + "run \"npm run generate:chordprobook-bundle\" and commit the result.";
-    if (strict) throw new Error(`build-site: ${msg}`);
-    log(`WARNING: ${msg}`);
-  } else {
-    log("chordprobook_browser_bundle.js matches the installed chordprobook.");
+// Every songbook embeds two committed, generated files: the chordprobook
+// bundle and the text font. Regenerate each from the installed
+// (lockfile-pinned) packages into the work dir and compare, so a stale
+// committed copy is caught here rather than shipped.
+const GENERATED = [
+  { file: "chordprobook_browser_bundle.js", script: "bundle-chordprobook-for-browser.mjs", npmScript: "generate:chordprobook-bundle" },
+  { file: "songbook_fonts.js", script: "embed-fonts.mjs", npmScript: "generate:fonts" },
+];
+
+function verifyGenerated(workDir, strict) {
+  for (const { file, script, npmScript } of GENERATED) {
+    const fresh = path.join(workDir, file);
+    run("node", [path.join(repoRoot, "scripts", script), "--out", fresh]);
+    const committed = path.join(repoRoot, "src", "songbook", "generated", file);
+    if (readFileSync(fresh, "utf8") !== readFileSync(committed, "utf8")) {
+      const msg = `the committed ${file} is stale relative to the installed packages — `
+        + `run "npm run ${npmScript}" and commit the result.`;
+      if (strict) throw new Error(`build-site: ${msg}`);
+      log(`WARNING: ${msg}`);
+    } else {
+      log(`${file} matches the installed packages.`);
+    }
   }
 }
 
@@ -218,7 +225,7 @@ async function main() {
   mkdirSync(workDir, { recursive: true });
 
   if (!args.skipTests) run("npm", ["test"], { cwd: repoRoot });
-  verifyBundle(workDir, args.strict);
+  verifyGenerated(workDir, args.strict);
 
   rmSync(outDir, { recursive: true, force: true });
   mkdirSync(outDir, { recursive: true });

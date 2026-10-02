@@ -41,6 +41,11 @@ import {
   CHORDPROBOOK_INSTRUMENTS_DATA as INSTRUMENTS_DATA_FOR_EMBED,
   CHORDPROBOOK_CHORD_DATA as CHORD_DATA_FOR_EMBED,
 } from "./generated/chordprobook_browser_bundle.js";
+// The text font, embedded (scripts/embed-fonts.mjs). Only ever used here,
+// at build time, to write the page's own stylesheet — initSongbookApp
+// refers to the family by its literal name, for the same free-identifier
+// reason as above.
+import { SONGBOOK_FONT_FACE_CSS, SONGBOOK_FONT_FAMILY } from "./generated/songbook_fonts.js";
 
 const DEFAULT_BOOK_TITLE = "Songbook";
 
@@ -1104,6 +1109,17 @@ export function initSongbookApp(document, window) {
   }
   window.addEventListener("resize", scheduleFit);
   window.addEventListener("orientationchange", scheduleFit);
+  // The embedded text font loads asynchronously even from a data: URI, so
+  // the first fit can run against the fallback font's metrics — and Atkinson
+  // Hyperlegible Next is a good deal wider than most system sans faces, so
+  // that fit would be too big. Fit again once the font is actually in. A
+  // browser without the CSS Font Loading API just keeps the first fit.
+  if (document.fonts && typeof document.fonts.load === "function") {
+    Promise.all([
+      document.fonts.load('400 1em "Atkinson Hyperlegible Next"'),
+      document.fonts.load('700 1em "Atkinson Hyperlegible Next"'),
+    ]).then(() => fitSongContent(), () => {});
+  }
 
   // Print mode — ported from chordprosite's own displayPrint()/printSong()
   // (template.njk), with the one change PT specifically asked for: this
@@ -2531,6 +2547,7 @@ export function renderSongbookHtml(crateJson) {
 <meta charset="utf-8">
 <title>${bookTitle}</title>
 <style>
+${SONGBOOK_FONT_FACE_CSS}
 /* High contrast, on PT's explicit instruction: no filled panels behind any
    text (no --surface-alt tint anywhere — chorus/bridge and tab blocks are
    marked by a rule/border, never a background fill), the page reduced to
@@ -2575,7 +2592,10 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
-  font-family: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+  /* Atkinson Hyperlegible Next, embedded above (scripts/embed-fonts.mjs):
+     a sans designed for legibility — easily confused letters drawn to stay
+     distinct — which is what reading a chart from a music stand needs. */
+  font-family: "${SONGBOOK_FONT_FAMILY}", -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
   line-height: 1.5;
 }
 .hidden { display: none !important; }
@@ -2892,7 +2912,6 @@ body {
 #song-content .inlineChord, #print-content .inlineChord {
   color: var(--chord);
   font-weight: 700;
-  font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
   font-size: 0.95em;
 }
 /* #toggle-chords-button's on-screen-only preference (chordsHidden, see

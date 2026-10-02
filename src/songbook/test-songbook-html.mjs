@@ -3017,6 +3017,17 @@ function columnFitFixture({ clientWidth, heightPerFontPx, wrappedLinesAt = {} })
   assert.match(pages.join(""), /one<\/div>\n<div class="line"><\/div>\n<div class="line">/);
 }
 
+{
+  // The text font is embedded (the page has to work offline), with its
+  // licence notice, and used for the page's text.
+  const html = renderSongbookHtml({ "@graph": [] });
+  assert.match(html, /@font-face\{font-family:"Atkinson Hyperlegible Next";font-style:normal;font-weight:400;[^}]*src:url\(data:font\/woff2;base64,/);
+  assert.match(html, /font-style:normal;font-weight:700;/);
+  assert.ok(html.includes("SIL Open Font License"));
+  assert.ok(html.includes('font-family: "Atkinson Hyperlegible Next", -apple-system'));
+  assert.ok(!html.includes("Georgia"));
+}
+
 /* ---------- the book title, and the ro-crate-preview.html redirect ---------- */
 
 {

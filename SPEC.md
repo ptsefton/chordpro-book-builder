@@ -454,6 +454,7 @@ src/songbook/
   generated/
     chordprobook_browser_bundle.js
                                generated; do not edit by hand — see §10
+    songbook_fonts.js          generated: the embedded text font — see §14
   st_directive.js              isomorphic {st:} match/rewrite core — see §15
   fix_st_directive_ui.js       browser-only shell (folder walk, zip backup, write-back) — §15
   fix_st_directive_action.js   fixStDirectives: the "Fix credits…" modal — §15
@@ -1211,8 +1212,15 @@ exception is a setlist entry's `~` match-status mark (§11), which follows `--ch
 specifically, over an earlier bordered-badge version — so red now means two things instead of
 one, though the two never appear in the same view, which keeps the practical ambiguity low.
 Chorus/bridge passages and tab blocks are set off by a border rule, never a background tint —
-no filled panel sits behind any text anywhere on the page. Song text is serif; UI chrome
-(buttons, the menu bar) is a plain sans.
+no filled panel sits behind any text anywhere on the page. Text is set in **Atkinson
+Hyperlegible Next**, a sans designed by the Braille Institute for legibility: easily confused
+letters (I l 1, O 0, rn m) are drawn to stay distinct, which is what reading a chart from a music
+stand needs. Its zero is slashed for the same reason. The font has to work offline, so it is
+embedded in every songbook as data: URIs (`generated/songbook_fonts.js`, from
+`scripts/embed-fonts.mjs`): Latin subset, regular and bold, upright and italic, about 50 KB, with
+its SIL Open Font License notice. Because even an embedded font loads asynchronously, the song
+view fits once immediately and again when the font has loaded. UI chrome (buttons, the menu bar)
+stays on the system sans.
 
 **Not yet built:** a hide-chords toggle, Nashville-number display, or any further style
 controls beyond what's listed in §12.

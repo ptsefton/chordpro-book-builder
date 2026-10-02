@@ -64,6 +64,9 @@ back. The songbook page embeds a copy of chordprobook
 (`src/songbook/generated/chordprobook_browser_bundle.js`, committed), so regenerate it after
 any chordprobook change. `build:site --strict` fails if the committed copy is stale.
 
+The text font (Atkinson Hyperlegible Next) is embedded in each songbook the same way, from
+`src/songbook/generated/songbook_fonts.js`. Run `npm run generate:fonts` after changing it.
+
 ## Command line
 
 The same build, with no browser:
