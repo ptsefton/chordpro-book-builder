@@ -418,6 +418,10 @@ function makeElement() {
     clientWidth: 0,
     scrollHeight: 0,
     scrollWidth: 0,
+    // fitSongContent counts wrapped lyric lines through this — nothing by
+    // default (innerHTML here is just a string, with no tree behind it);
+    // the column-choice tests override it with fake lines.
+    querySelectorAll() { return []; },
     classList: {
       add: (name) => classes.add(name),
       remove: (name) => classes.delete(name),
@@ -1843,6 +1847,113 @@ function isFittedFontSize(value) {
   assert.equal(content.classList.contains("two-columns"), true);
 }
 
+// Column choice. Same kind of synthetic layout model as above, extended so
+// height also depends on how many columns the content is flowed into
+// (scrollHeight divides by the column count, as balanced columns roughly
+// do) and so lyric lines can "wrap" (taller than one row) at a given count.
+function columnFitFixture({ clientWidth, heightPerFontPx, wrappedLinesAt = {} }) {
+  const { doc, elements } = fakeDocument(CRATE_JSON);
+  const content = elements["song-content"];
+  const columns = () => (content.classList.contains("three-columns") ? 3 : content.classList.contains("two-columns") ? 2 : 1);
+  content.clientWidth = clientWidth;
+  Object.defineProperty(content, "scrollHeight", {
+    get() { return ((parseInt(content.style.fontSize) || 0) * heightPerFontPx) / columns(); },
+  });
+  Object.defineProperty(content, "scrollWidth", { get() { return 1; } });
+  // Ten lines, one row (20px) each, except that the first N are two rows
+  // tall at a column count listed in wrappedLinesAt.
+  content.querySelectorAll = (selector) => (selector !== ".line" ? [] : Array.from({ length: 10 }, (_line, index) => ({
+    get offsetHeight() { return index < (wrappedLinesAt[columns()] || 0) ? 40 : 20; },
+  })));
+  elements["app-bar"].offsetHeight = 60;
+  initSongbookApp(doc, fakeWindow({ innerHeight: 800 })); // available height 740
+  songLink(elements, 0).click();
+  return { content, columns };
+}
+
+{
+  // Portrait-shaped (740 high, 300 wide), so the default is one column:
+  // 30 * font <= 740 gives 24px. Two columns halve the height, giving 49px
+  // — far more than the 8% needed to switch — and three give 74px. Nothing
+  // wraps at any count, so the biggest wins.
+  const { content, columns } = columnFitFixture({ clientWidth: 300, heightPerFontPx: 30 });
+  assert.equal(columns(), 3);
+  assert.equal(content.style.fontSize, "74px");
+}
+
+{
+  // The same song, but three columns would wrap four lyric lines and two
+  // columns none: three is ruled out however big its text, two is taken.
+  const { content, columns } = columnFitFixture({ clientWidth: 300, heightPerFontPx: 30, wrappedLinesAt: { 3: 4 } });
+  assert.equal(columns(), 2);
+  assert.equal(content.style.fontSize, "49px");
+}
+
+{
+  // Every alternative wraps more than the default does — stay with one
+  // column and its own fitted size, however much bigger the others get.
+  const { content, columns } = columnFitFixture({ clientWidth: 300, heightPerFontPx: 30, wrappedLinesAt: { 2: 1, 3: 4 } });
+  assert.equal(columns(), 1);
+  assert.equal(content.style.fontSize, "24px");
+}
+
+{
+  // A candidate that already wraps as much as the default is no worse for
+  // it: the default (one column) wraps two lines, two columns also two.
+  const { columns } = columnFitFixture({ clientWidth: 300, heightPerFontPx: 30, wrappedLinesAt: { 1: 2, 2: 2, 3: 5 } });
+  assert.equal(columns(), 2);
+}
+
+{
+  // A tab block too wide for its column doesn't hold the song's text down
+  // — the song still gets the size its own height and width allow (80px
+  // here) — it is shrunk by itself instead: 500px of room for 1000px of
+  // tab is a factor of 0.5 on the stylesheet's 0.9em. One that already
+  // fits is left alone, and so is its inline style.
+  const { doc, elements } = fakeDocument(CRATE_JSON);
+  const content = elements["song-content"];
+  content.clientWidth = 1000;
+  Object.defineProperty(content, "scrollHeight", { get() { return 1; } });
+  Object.defineProperty(content, "scrollWidth", { get() { return 1; } });
+  const wideTab = { clientWidth: 500, scrollWidth: 1000, style: { fontSize: "stale" } };
+  const narrowTab = { clientWidth: 500, scrollWidth: 400, style: {} };
+  content.querySelectorAll = (selector) => (selector === "pre" ? [wideTab, narrowTab] : []);
+  elements["app-bar"].offsetHeight = 60;
+  initSongbookApp(doc, fakeWindow({ innerHeight: 800 }));
+  songLink(elements, 0).click();
+  assert.equal(content.style.fontSize, "80px");
+  assert.equal(wideTab.style.fontSize, "0.450em");
+  assert.equal(narrowTab.style.fontSize, "");
+}
+
+{
+  // Severity counts, not just how many lines wrap: the default wraps two
+  // lines once each (2 extra rows); a count that wraps those same two lines
+  // onto three rows each (4 extra) is worse, and is ruled out.
+  const { doc, elements } = fakeDocument(CRATE_JSON);
+  const content = elements["song-content"];
+  const columns = () => (content.classList.contains("three-columns") ? 3 : content.classList.contains("two-columns") ? 2 : 1);
+  content.clientWidth = 300;
+  Object.defineProperty(content, "scrollHeight", { get() { return ((parseInt(content.style.fontSize) || 0) * 30) / columns(); } });
+  Object.defineProperty(content, "scrollWidth", { get() { return 1; } });
+  content.querySelectorAll = (selector) => (selector !== ".line" ? [] : Array.from({ length: 10 }, (_line, index) => ({
+    get offsetHeight() { return index < 2 ? 20 * (columns() + 1) : 20; }, // 2 rows at one column, 3 at two, 4 at three
+  })));
+  elements["app-bar"].offsetHeight = 60;
+  initSongbookApp(doc, fakeWindow({ innerHeight: 800 }));
+  songLink(elements, 0).click();
+  assert.equal(columns(), 1);
+}
+
+{
+  // Landscape-shaped default (two columns) and a short song: everything
+  // already fits at the 80px ceiling, so no other count can beat it by 8%
+  // and the layout stays put.
+  const { content, columns } = columnFitFixture({ clientWidth: 1000, heightPerFontPx: 8 });
+  assert.equal(columns(), 2);
+  assert.equal(content.style.fontSize, "80px");
+}
+
 {
   // A width that no font size fixes — standing in for a long unwrapped tab
   // line — must not be searched around forever (chordprosite's own
@@ -2888,7 +2999,11 @@ function isFittedFontSize(value) {
   // closes a block. Issue #2's bracketless chords are inline-block on
   // screen only, so chordprobook's padding spaces can't split a word.
   const html = renderSongbookHtml({ "@graph": [] });
-  assert.ok(html.includes("#song-content .line:empty, #print-content .line:empty { height: 0.7em; }"));
+  assert.ok(html.includes("#song-content .line:empty, #print-content .line:empty { height: 0.6em; }"));
+  // No gap beside a heading or a chorus/tab block — those have margins of
+  // their own, and doubling them up only costs font size.
+  assert.ok(html.includes("#song-content .line:empty:has(+ :not(.line))"));
+  assert.ok(html.includes("#song-content :not(.line) + .line:empty"));
   assert.ok(html.includes("#song-content .line:empty + .line:empty, #print-content .line:empty + .line:empty { display: none; }"));
   assert.ok(html.includes("#song-content .inlineChord { display: inline-block; padding: 0 0.12em; }"));
   assert.ok(!html.includes("#print-content .inlineChord { display: inline-block"));

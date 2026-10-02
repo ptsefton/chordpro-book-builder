@@ -705,13 +705,34 @@ Notes are hidable with one toggle for the whole setlist (`#toggle-notes-button` 
 **Fit-to-window.** `fitTextToBox(element, availableHeight, availableWidth)` is a binary
 search over font-size (`FIT_MIN_FONT_PX`–`FIT_MAX_FONT_PX`, 10–80px) that finds the largest
 size at which `element.scrollHeight`/`scrollWidth` still fit the given box, used both
-on-screen (`fitSongContent`, against the viewport minus the menu bar's height, toggling a
-`two-columns` class when the available space is landscape-proportioned) and in print
+on-screen (`fitSongContent`, against the viewport minus the menu bar's height) and in print
 (`fitPrintSongPage`, §13). There is no CSS-only way to do this: font-size determines how
 much text wraps, which determines height, which is exactly what has to fit a box of known
 height — `clamp()`/container query units size from the container's own dimensions, not from
 how a given size makes a specific piece of text wrap. `fitSongContent` re-runs on window
 resize/orientation change, debounced 150ms.
+
+**Column count is part of the search.** The default is two columns when the available space is
+wider than it is tall, otherwise one. But that rule knows nothing about the song, so
+`fitSongContent` runs the font-size search at one, two and three columns
+(`two-columns`/`three-columns` classes) and keeps the largest text, under two conditions. The
+default is tried first and only loses to a count that beats it by `COLUMN_SWITCH_GAIN` (8%), so
+the layout doesn't change for the sake of a pixel. And a candidate must not wrap lyric lines more
+than the default does: `wrappedRowCount()` totals the extra rows lines take through wrapping (a
+line on three rows counts two), because bigger text bought by chopping every line into pieces is
+harder to play from, not easier. In practice songs with short lines gain a column (and up to a
+third in size); songs with long lines keep the default.
+
+**Tab blocks** (`<pre>`) scroll sideways inside their own box, so the search never sees one that
+is too wide. Rather than hold the whole song's text down to what its widest tab allows,
+`fitTabBlocks` shrinks only a tab that doesn't fit its column, by `clientWidth / scrollWidth` (its
+padding is in em, so that factor is exact), down to half size; below that it scrolls. The inline
+size is reset at the start of every fit.
+
+**Vertical spacing is tighter on screen than in print**, since on screen all of it is paid for
+in font size: `#song-content` has `line-height: 1.3` (the page's own is 1.5) and smaller margins
+around headings and chorus/bridge blocks. Chords sit inline, not above the lyric, so lines don't
+need the room.
 
 **Title, key, capo.** `#song-header` — `#song-view-title`, `#key-select`/`#capo-select`
 (`populateKeySelect`/`populateCapoSelect`) — is the first child of `#song-content`, not part
@@ -1179,9 +1200,10 @@ High contrast: plain black-on-white (white-on-black under `prefers-color-scheme:
 On screen, chords are shown without their `[]` (`renderSong`'s `noBrackets`) — the colour
 already sets them apart — as inline blocks with a little padding, so a mid-word chord doesn't
 split its word; the print views keep the brackets, since a printout may be black and white. A
-blank line in a song's source (the gap between verses) shows as a gap of 0.7em, in the song view
-and in print; consecutive blank lines collapse to one, and one at the very start or end of a
-block is dropped. Chord names are red on white and, on screen in dark mode, yellow on black
+blank line in a song's source (the gap between verses) shows as a gap of half a line (0.6em
+plus its margin), in the song view and in print; consecutive blank lines collapse to one, and
+one at the very start or end of a block, or next to anything that isn't a lyric line (a heading,
+a chorus/bridge block, a tab block — all of which have margins of their own), is dropped. Chord names are red on white and, on screen in dark mode, yellow on black
 (`@media screen and (prefers-color-scheme: dark)` — screen only, so printing from a dark-mode
 browser still gives red chords). **That colour (`--chord`) is otherwise reserved for chord names** — every other control (buttons,
 borders, the menu bar) uses black/white rather than a colour of its own. The one deliberate

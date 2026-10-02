@@ -1004,20 +1004,89 @@ export function initSongbookApp(document, window) {
     songViewTitle.style.fontSize = titleMeasurer.style.fontSize;
   }
 
+  // How much bigger the text has to get before fitSongContent abandons the
+  // default column count for another one — a different layout for the sake
+  // of a pixel isn't worth the surprise.
+  const COLUMN_SWITCH_GAIN = 1.08;
+  const COLUMN_CLASSES = { 2: "two-columns", 3: "three-columns" };
+
+  function setSongColumns(columns) {
+    for (const [count, className] of Object.entries(COLUMN_CLASSES)) {
+      songContent.classList.toggle(className, Number(count) === columns);
+    }
+  }
+
+  // How many extra rows the lyric lines currently take through wrapping —
+  // a line on three rows counts two. A chart is read a line at a time, so a
+  // line broken across rows costs more than its extra height. The shortest
+  // non-empty line is taken as one row's height.
+  function wrappedRowCount() {
+    const heights = Array.from(songContent.querySelectorAll(".line"), (line) => line.offsetHeight)
+      .filter((height) => height > 0);
+    if (!heights.length) return 0;
+    const oneRow = Math.min(...heights);
+    return heights.reduce((extra, height) => extra + Math.round(height / oneRow) - 1, 0);
+  }
+
+  // A tab block (<pre>) scrolls sideways inside its own box rather than
+  // overflowing the song, so the font-size search never sees one that's too
+  // wide — it just ends up clipped. Holding the whole song's text down to
+  // whatever lets its widest tab fit would waste most of the screen for the
+  // sake of one block, so the lyrics take the size they can and a tab that
+  // doesn't fit its column is shrunk on its own instead. Its padding is in
+  // em, so everything in it scales together and clientWidth / scrollWidth is
+  // exactly the factor needed. Below TAB_MIN_SCALE it's left to scroll, as
+  // it always did. TAB_FONT_EM mirrors the stylesheet's own pre font-size.
+  const TAB_FONT_EM = 0.9;
+  const TAB_MIN_SCALE = 0.5;
+  function resetTabBlocks() {
+    for (const pre of songContent.querySelectorAll("pre")) pre.style.fontSize = "";
+  }
+  function fitTabBlocks() {
+    for (const pre of songContent.querySelectorAll("pre")) {
+      if (pre.scrollWidth <= pre.clientWidth) continue;
+      const scale = Math.max(TAB_MIN_SCALE, pre.clientWidth / pre.scrollWidth);
+      pre.style.fontSize = `${(TAB_FONT_EM * scale).toFixed(3)}em`;
+    }
+  }
+
   function fitSongContent() {
     if (currentIndex < 0) return;
+    resetTabBlocks(); // a re-fit (resize, rotation) starts from the stylesheet's own size again
 
     const availableHeight = window.innerHeight - appBar.offsetHeight;
     const availableWidth = songContent.clientWidth;
 
-    // Landscape-proportioned space — more available width than height —
-    // gets two columns, the same trigger chordprosite itself uses. Decided
-    // before the search below, since it changes how the same font size
-    // wraps: a column layout roughly halves the height a given amount of
-    // text needs, so column count has to be settled first, not fitted
-    // around afterwards.
-    songContent.classList.toggle("two-columns", availableHeight < availableWidth);
-    fitTextToBox(songContent, availableHeight, availableWidth);
+    // Column count changes how the same font size wraps, so it has to be
+    // settled as part of the search, not fitted around afterwards. The
+    // default is chordprosite's own rule — two columns when there is more
+    // width than height, otherwise one — but that rule knows nothing about
+    // the song: a long song of short lines on a portrait screen fits much
+    // larger in two columns, and a very long one on a wide screen in three.
+    // So every count is tried, each with its own font-size search, and the
+    // largest text wins — with two conditions. The default is tried first
+    // and only loses to a count that beats it by COLUMN_SWITCH_GAIN. And
+    // bigger text bought by chopping lines up doesn't count: a candidate
+    // has to wrap lyric lines no more than the default layout does.
+    const defaultColumns = availableHeight < availableWidth ? 2 : 1;
+    const candidates = [defaultColumns, ...[1, 2, 3].filter((columns) => columns !== defaultColumns)];
+    let best = null;
+    let wrappedAtDefault = 0;
+    for (const columns of candidates) {
+      setSongColumns(columns);
+      fitTextToBox(songContent, availableHeight, availableWidth);
+      const fontPx = parseFloat(songContent.style.fontSize);
+      const wrapped = wrappedRowCount();
+      if (!best) {
+        best = { columns, fontPx };
+        wrappedAtDefault = wrapped;
+      } else if (fontPx > best.fontPx * COLUMN_SWITCH_GAIN && wrapped <= wrappedAtDefault) {
+        best = { columns, fontPx };
+      }
+    }
+    setSongColumns(best.columns);
+    songContent.style.fontSize = `${best.fontPx}px`;
+    fitTabBlocks();
     fitSongHeaderTitle();
   }
 
@@ -2806,13 +2875,20 @@ body {
    search in fitSongContent to grow into. */
 #song-content .line:empty + .line:empty, #print-content .line:empty + .line:empty { display: none; }
 /* A blank source line — the gap between verses — has to show as a gap
-   (issue #1): an empty div has no height of its own. Deliberately less than
-   a full line, for the same headroom reason as the rule above; and none at
-   all at the very start or end of a block, where there's nothing to
-   separate. */
-#song-content .line:empty, #print-content .line:empty { height: 0.7em; }
+   (issue #1): an empty div has no height of its own. Half a line, not a
+   whole one, for the same headroom reason as the rule above: 0.6em plus
+   this div's own 0.1em margin is half of a lyric line's ~1.4em pitch.
+   None at all at the very start or end of a block, where there's nothing
+   to separate. */
+#song-content .line:empty, #print-content .line:empty { height: 0.6em; }
 #song-content .line:empty:first-child, #print-content .line:empty:first-child,
 #song-content .line:empty:last-child, #print-content .line:empty:last-child { display: none; }
+/* ...and none next to anything that isn't a lyric line: a heading, a
+   chorus/bridge block and a tab block all carry their own margins, so a
+   blank line beside one only stacked a second gap on top of it — space the
+   font-size search then had to pay for with smaller text. */
+#song-content .line:empty:has(+ :not(.line)), #print-content .line:empty:has(+ :not(.line)),
+#song-content :not(.line) + .line:empty, #print-content :not(.line) + .line:empty { display: none; }
 #song-content .inlineChord, #print-content .inlineChord {
   color: var(--chord);
   font-weight: 700;
@@ -2829,6 +2905,13 @@ body {
    separation to read as a chord rather than part of the lyric. */
 #song-content .inlineChord { display: inline-block; padding: 0 0.12em; }
 #song-content.chords-hidden .inlineChord { display: none; }
+/* On screen every bit of vertical space is paid for in font size — the
+   whole song has to fit the window (fitSongContent) — so the song view is
+   set tighter than the page's own 1.5 line-height and than print: chords
+   sit inline here, not above the lyric, so lines don't need the room. */
+#song-content { line-height: 1.3; }
+#song-content .heading { margin: 0.7em 0 0.2em; }
+#song-content blockquote.chorus, #song-content blockquote.bridge { margin: 0.5em 0; padding: 0.1em 0 0.1em 1em; }
 #song-content blockquote.chorus, #song-content blockquote.bridge,
 #print-content blockquote.chorus, #print-content blockquote.bridge {
   margin: 0.75em 0;
@@ -2849,6 +2932,10 @@ body {
 #song-content.two-columns {
   column-count: 2;
   column-gap: 2rem;
+}
+#song-content.three-columns {
+  column-count: 3;
+  column-gap: 1.5rem;
 }
 
 /* Title/key/capo, moved here from #app-bar so they scale with the song
