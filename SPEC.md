@@ -1176,7 +1176,12 @@ enough entries, or long enough notes, to need it. No page numbers, same reasonin
 ## 14. Visual design
 
 High contrast: plain black-on-white (white-on-black under `prefers-color-scheme: dark`).
-Chord names are red on white and, on screen in dark mode, yellow on black
+On screen, chords are shown without their `[]` (`renderSong`'s `noBrackets`) — the colour
+already sets them apart — as inline blocks with a little padding, so a mid-word chord doesn't
+split its word; the print views keep the brackets, since a printout may be black and white. A
+blank line in a song's source (the gap between verses) shows as a gap of 0.7em, in the song view
+and in print; consecutive blank lines collapse to one, and one at the very start or end of a
+block is dropped. Chord names are red on white and, on screen in dark mode, yellow on black
 (`@media screen and (prefers-color-scheme: dark)` — screen only, so printing from a dark-mode
 browser still gives red chords). **That colour (`--chord`) is otherwise reserved for chord names** — every other control (buttons,
 borders, the menu bar) uses black/white rather than a colour of its own. The one deliberate

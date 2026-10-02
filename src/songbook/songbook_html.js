@@ -835,7 +835,10 @@ export function initSongbookApp(document, window) {
     // parseSongForRender, not a bare `new ChordProSong(song.text)` — its own
     // header comment above explains why.
     const parsedSong = parseSongForRender(song);
-    const rendered = renderSong(parsedSong, song.text, { transpose: currentTranspose, capo: currentCapo });
+    // noBrackets: on screen a chord is already set apart by its colour, so
+    // the [] around it is just clutter (issue #2). The print views keep the
+    // brackets — a printout may well be black and white.
+    const rendered = renderSong(parsedSong, song.text, { transpose: currentTranspose, capo: currentCapo, noBrackets: true });
 
     songPagesElement.innerHTML = rendered.pages.join("\n");
     songContent.classList.toggle("chords-hidden", chordsHidden);
@@ -2802,6 +2805,14 @@ body {
    reason: wasted vertical space here is wasted headroom for the font-size
    search in fitSongContent to grow into. */
 #song-content .line:empty + .line:empty, #print-content .line:empty + .line:empty { display: none; }
+/* A blank source line — the gap between verses — has to show as a gap
+   (issue #1): an empty div has no height of its own. Deliberately less than
+   a full line, for the same headroom reason as the rule above; and none at
+   all at the very start or end of a block, where there's nothing to
+   separate. */
+#song-content .line:empty, #print-content .line:empty { height: 0.7em; }
+#song-content .line:empty:first-child, #print-content .line:empty:first-child,
+#song-content .line:empty:last-child, #print-content .line:empty:last-child { display: none; }
 #song-content .inlineChord, #print-content .inlineChord {
   color: var(--chord);
   font-weight: 700;
@@ -2811,6 +2822,12 @@ body {
 /* #toggle-chords-button's on-screen-only preference (chordsHidden, see
    initSongbookApp) — scoped to #song-content, never #print-content, since
    a printed chart always shows its chords regardless of this toggle. */
+/* On screen, chords render without their [] (renderCurrentSong's own
+   noBrackets) — chordprobook pads a bracketless chord with a space either
+   side, which would break a mid-word chord's word in two ("A- G maz-ing").
+   inline-block drops those edge spaces; the padding puts back just enough
+   separation to read as a chord rather than part of the lyric. */
+#song-content .inlineChord { display: inline-block; padding: 0 0.12em; }
 #song-content.chords-hidden .inlineChord { display: none; }
 #song-content blockquote.chorus, #song-content blockquote.bridge,
 #print-content blockquote.chorus, #print-content blockquote.bridge {

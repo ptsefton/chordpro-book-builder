@@ -705,8 +705,11 @@ function isHidden(element) {
 
   // Rendered by chordprobook's real renderSong(), not a stub — chord
   // brackets become inlineChord spans, matching that library's own tests.
-  assert.ok(elements["song-pages"].innerHTML.includes('<span class="inlineChord">[G]</span>'));
-  assert.ok(elements["song-pages"].innerHTML.includes('<span class="inlineChord">[G7]</span>'));
+  assert.ok(elements["song-pages"].innerHTML.includes('<span class="inlineChord"> G </span>'));
+  assert.ok(elements["song-pages"].innerHTML.includes('<span class="inlineChord"> G7 </span>'));
+  // No [] around chords on screen (issue #2) — colour sets them apart; the
+  // print views, asserted further down, keep theirs.
+  assert.ok(!elements["song-pages"].innerHTML.includes("[G]"));
 
   // First song: previous is disabled, next is not. No setlist active, so
   // "the current set" is just the whole (2-song) global list.
@@ -753,8 +756,8 @@ function isHidden(element) {
   elements["capo-select"].dispatch("change");
 
   // G down 2 semitones is F.
-  assert.ok(elements["song-pages"].innerHTML.includes('<span class="inlineChord">[F]</span>'));
-  assert.ok(elements["song-pages"].innerHTML.includes('<span class="inlineChord">[F7]</span>'));
+  assert.ok(elements["song-pages"].innerHTML.includes('<span class="inlineChord"> F </span>'));
+  assert.ok(elements["song-pages"].innerHTML.includes('<span class="inlineChord"> F7 </span>'));
   assert.equal(elements["capo-select"].children[2].selected, true);
 }
 
@@ -769,13 +772,13 @@ function isHidden(element) {
 
   elements["capo-select"].value = "2";
   elements["capo-select"].dispatch("change");
-  assert.ok(elements["song-pages"].innerHTML.includes('<span class="inlineChord">[F]</span>'));
+  assert.ok(elements["song-pages"].innerHTML.includes('<span class="inlineChord"> F </span>'));
 
   elements["key-select"].value = "D";
   elements["key-select"].dispatch("change");
 
-  assert.ok(elements["song-pages"].innerHTML.includes('<span class="inlineChord">[D]</span>'));
-  assert.ok(elements["song-pages"].innerHTML.includes('<span class="inlineChord">[D7]</span>'));
+  assert.ok(elements["song-pages"].innerHTML.includes('<span class="inlineChord"> D </span>'));
+  assert.ok(elements["song-pages"].innerHTML.includes('<span class="inlineChord"> D7 </span>'));
   assert.equal(elements["capo-select"].children[0].selected, true); // back to "No Capo"
 }
 
@@ -988,10 +991,10 @@ function isHidden(element) {
 
   elements["key-select"].value = "D";
   elements["key-select"].dispatch("change");
-  assert.ok(elements["song-pages"].innerHTML.includes('<span class="inlineChord">[D]</span>'));
+  assert.ok(elements["song-pages"].innerHTML.includes('<span class="inlineChord"> D </span>'));
 
   elements["next-song-button"].click(); // -> Universe, key C, untouched
-  assert.ok(elements["song-pages"].innerHTML.includes('<span class="inlineChord">[C]</span>'));
+  assert.ok(elements["song-pages"].innerHTML.includes('<span class="inlineChord"> C </span>'));
   assert.equal(elements["key-select"].children.find((o) => o.value === "C").selected, true);
 }
 
@@ -1096,12 +1099,12 @@ function isHidden(element) {
   elements["key-select"].dispatch("change");
   elements["capo-select"].value = "2";
   elements["capo-select"].dispatch("change");
-  assert.ok(elements["song-pages"].innerHTML.includes('<span class="inlineChord">[C]</span>')); // D - 2 = C
+  assert.ok(elements["song-pages"].innerHTML.includes('<span class="inlineChord"> C </span>')); // D - 2 = C
 
   elements["next-song-button"].click(); // -> Universe
   elements["prev-song-button"].click(); // back to Amazing Grace
 
-  assert.ok(elements["song-pages"].innerHTML.includes('<span class="inlineChord">[C]</span>')); // still D capo 2
+  assert.ok(elements["song-pages"].innerHTML.includes('<span class="inlineChord"> C </span>')); // still D capo 2
   assert.equal(elements["key-select"].children.find((o) => o.value === "D").selected, true);
   assert.equal(elements["capo-select"].children.find((o) => o.value === "2").selected, true);
 
@@ -1113,7 +1116,7 @@ function isHidden(element) {
   const { doc: doc2, elements: elements2 } = fakeDocument(CRATE_JSON);
   initSongbookApp(doc2, win);
   songLink(elements2, 0).click(); // Amazing Grace, opened fresh
-  assert.ok(elements2["song-pages"].innerHTML.includes('<span class="inlineChord">[C]</span>'));
+  assert.ok(elements2["song-pages"].innerHTML.includes('<span class="inlineChord"> C </span>'));
 }
 
 {
@@ -1134,7 +1137,7 @@ function isHidden(element) {
     elements["key-select"].value = "D";
     elements["key-select"].dispatch("change");
   });
-  assert.ok(elements["song-pages"].innerHTML.includes('<span class="inlineChord">[D]</span>'));
+  assert.ok(elements["song-pages"].innerHTML.includes('<span class="inlineChord"> D </span>'));
 }
 
 /* ---------- print mode: replaces the current screen, not a new window ---------- */
@@ -2191,7 +2194,7 @@ function isFittedFontSize(value) {
   songLink(elements, 0).click();
   const keySelect = elements["key-select"];
   assert.equal(keySelect.children.find((o) => o.value === "D").selected, true);
-  assert.ok(elements["song-pages"].innerHTML.includes('<span class="inlineChord">[D]</span>'));
+  assert.ok(elements["song-pages"].innerHTML.includes('<span class="inlineChord"> D </span>'));
 }
 
 {
@@ -2378,7 +2381,7 @@ function isFittedFontSize(value) {
   // for this one performance slot, not the song's title (SPEC.md §6/§7).
   assert.equal(elements["song-view-title"].textContent, "Song B");
   // Song B is key C; the entry's capo:2 override shifts it down to Bb.
-  assert.ok(elements["song-pages"].innerHTML.includes('<span class="inlineChord">[Bb]</span>'));
+  assert.ok(elements["song-pages"].innerHTML.includes('<span class="inlineChord"> Bb </span>'));
 }
 
 {
@@ -2406,7 +2409,7 @@ function isFittedFontSize(value) {
 
   elements["next-song-button"].click(); // -> Song B (capo 2 override), still Set 1
   assert.equal(elements["song-view-title"].textContent, "Song B");
-  assert.ok(elements["song-pages"].innerHTML.includes('<span class="inlineChord">[Bb]</span>'));
+  assert.ok(elements["song-pages"].innerHTML.includes('<span class="inlineChord"> Bb </span>'));
   assert.equal(elements["next-song-button"].disabled, true); // last of Set 1 — Set 2's entry is a different set
   assert.equal(elements["song-position-counter"].textContent, "2/2");
 
@@ -2877,6 +2880,26 @@ function isFittedFontSize(value) {
   const html = renderSongbookHtml({ "@graph": [] });
   assert.ok(html.includes("--chord: #ff0000;"));
   assert.match(html, /@media screen and \(prefers-color-scheme: dark\) \{\s*:root \{ --chord: #ffd60a; \}/);
+}
+
+{
+  // Issue #1: a blank line between verses shows as a gap, in both the song
+  // view and print — but still collapses when doubled, and never opens or
+  // closes a block. Issue #2's bracketless chords are inline-block on
+  // screen only, so chordprobook's padding spaces can't split a word.
+  const html = renderSongbookHtml({ "@graph": [] });
+  assert.ok(html.includes("#song-content .line:empty, #print-content .line:empty { height: 0.7em; }"));
+  assert.ok(html.includes("#song-content .line:empty + .line:empty, #print-content .line:empty + .line:empty { display: none; }"));
+  assert.ok(html.includes("#song-content .inlineChord { display: inline-block; padding: 0 0.12em; }"));
+  assert.ok(!html.includes("#print-content .inlineChord { display: inline-block"));
+}
+
+{
+  // ...and renderSong really does emit that empty .line for a blank line
+  // between two verses, which is what the rule above gives height to.
+  const song = new ChordProSong("{title: T}\n[C]one\n\n[G]two");
+  const { pages } = renderSong(song, "{title: T}\n[C]one\n\n[G]two", {});
+  assert.match(pages.join(""), /one<\/div>\n<div class="line"><\/div>\n<div class="line">/);
 }
 
 /* ---------- the book title, and the ro-crate-preview.html redirect ---------- */
